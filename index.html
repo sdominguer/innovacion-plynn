@@ -34,6 +34,30 @@
 const { useState, useEffect, useCallback, useRef } = React;
 
 // ============================================================
+// CONFIGURACIÓN — Pega aquí la URL de tu Google Apps Script
+// ============================================================
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvHvdG6J6ekLxrFS4ugpaxsx6BXgGCmniGcfN-NI449RZ8wDKvhX-fL2qXgRMdVbeP/exec;
+
+async function apiCall(action, params = {}) {
+  try {
+    // Build URL with query parameters (same pattern as Retos/Soluciones)
+    let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
+    for (const [key, val] of Object.entries(params)) {
+      if (key === "datos") {
+        // datos goes as encoded payload
+        url += "&payload=" + encodeURIComponent(JSON.stringify(val));
+      } else {
+        url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+      }
+    }
+    const res = await fetch(url);
+    return await res.json();
+  } catch (e) {
+    return { success: false, error: "Error de conexión. Intenta de nuevo." };
+  }
+}
+
+// ============================================================
 // PLANTILLA DIGITAL INNOVACCIÓN 2026 — PLYNN
 // Complete digital workbook: 8 talleres, 37 actividades
 // ============================================================
@@ -1932,9 +1956,9 @@ function calcProgress(data) {
 }
 
 // ============================================================
-// MAIN APP
+// MAIN APP (receives user from auth wrapper)
 // ============================================================
-function InnovaccionApp() {
+function InnovaccionApp({ user, onLogout }) {
   const [data, setData] = useState(DEFAULT_DATA);
   const [currentTaller, setCurrentTaller] = useState(0);
   const [currentActivity, setCurrentActivity] = useState(0);
@@ -1944,26 +1968,41 @@ function InnovaccionApp() {
   const [showingIntro, setShowingIntro] = useState(true);
   const saveTimeout = useRef(null);
 
-  // Load data
+  // Load data from API on mount
   useEffect(() => {
     const load = async () => {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY); const result = raw ? { value: raw } : null;
-        if (result && result.value) {
-          const parsed = JSON.parse(result.value);
+        // Try API first
+        const apiResult = await apiCall("load", { empresa: user });
+        if (apiResult.success && apiResult.datos && Object.keys(apiResult.datos).length > 0) {
+          const parsed = apiResult.datos;
           setData(prev => ({ ...prev, ...parsed }));
           if (parsed.currentTaller !== undefined) setCurrentTaller(parsed.currentTaller);
           if (parsed.currentActivity !== undefined) setCurrentActivity(parsed.currentActivity);
+        } else {
+          // Fallback to localStorage
+          const raw = localStorage.getItem(STORAGE_KEY + "_" + user);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            setData(prev => ({ ...prev, ...parsed }));
+            if (parsed.currentTaller !== undefined) setCurrentTaller(parsed.currentTaller);
+            if (parsed.currentActivity !== undefined) setCurrentActivity(parsed.currentActivity);
+          }
         }
       } catch (e) {
-        console.log("No saved data found, starting fresh");
+        console.log("Load error, trying localStorage", e);
+        const raw = localStorage.getItem(STORAGE_KEY + "_" + user);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          setData(prev => ({ ...prev, ...parsed }));
+        }
       }
       setLoaded(true);
     };
     load();
-  }, []);
+  }, [user]);
 
-  // Auto-save with debounce
+  // Auto-save with debounce — saves to both localStorage and API
   useEffect(() => {
     if (!loaded) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -1971,13 +2010,16 @@ function InnovaccionApp() {
       setSaving(true);
       try {
         const toSave = { ...data, currentTaller, currentActivity, lastSaved: new Date().toISOString() };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+        // Save locally first (instant)
+        localStorage.setItem(STORAGE_KEY + "_" + user, JSON.stringify(toSave));
+        // Then save to API (cloud)
+        await apiCall("save", { empresa: user, datos: toSave });
       } catch (e) {
         console.error("Save failed:", e);
       }
       setTimeout(() => setSaving(false), 800);
-    }, 1500);
-  }, [data, currentTaller, currentActivity, loaded]);
+    }, 2000);
+  }, [data, currentTaller, currentActivity, loaded, user]);
 
   const progress = calcProgress(data);
   const taller = TALLERES[currentTaller];
@@ -2135,7 +2177,7 @@ function InnovaccionApp() {
         </nav>
 
         {/* Export button */}
-        <div style={{ padding: 16, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+        <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
           <button onClick={() => downloadCSV(data)}
             style={{
               width: "100%", padding: "10px 16px", borderRadius: 8,
@@ -2143,7 +2185,21 @@ function InnovaccionApp() {
               cursor: "pointer", fontWeight: 700, fontSize: 13,
               fontFamily: "'Montserrat', sans-serif",
             }}>
-            📥 Exportar a CSV (Google Sheets)
+            📥 Exportar a CSV
+          </button>
+        </div>
+        <div style={{ padding: "8px 16px 16px" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 6, textAlign: "center" }}>
+            Sesión: {user}
+          </div>
+          <button onClick={onLogout}
+            style={{
+              width: "100%", padding: "8px 16px", borderRadius: 8,
+              background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.2)",
+              cursor: "pointer", fontWeight: 600, fontSize: 12,
+              fontFamily: "'Montserrat', sans-serif",
+            }}>
+            Cerrar sesión
           </button>
         </div>
       </aside>
@@ -2352,10 +2408,237 @@ function InnovaccionApp() {
 }
 
 // ============================================================
+// LOGIN SCREEN
+// ============================================================
+function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState("login"); // "login" or "register"
+  const [empresa, setEmpresa] = useState("");
+  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!empresa.trim() || !password.trim()) {
+      setError("Por favor llena todos los campos");
+      return;
+    }
+    setLoading(true);
+    setError("");
+
+    if (mode === "register") {
+      const res = await apiCall("register", { empresa: empresa.trim(), password, email });
+      if (res.success) {
+        // Auto login after register
+        onLogin(empresa.trim());
+      } else {
+        setError(res.error || "Error al registrar");
+      }
+    } else {
+      const res = await apiCall("login", { empresa: empresa.trim(), password });
+      if (res.success) {
+        onLogin(res.empresa || empresa.trim());
+      } else {
+        setError(res.error || "Error al iniciar sesión");
+      }
+    }
+    setLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleSubmit();
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: `linear-gradient(135deg, ${COLORS.navy} 0%, #0D1B3E 50%, ${COLORS.lightNavy} 100%)`,
+      fontFamily: "'Montserrat', sans-serif", padding: 20,
+    }}>
+      {/* Decorative background elements */}
+      <div style={{
+        position: "absolute", top: "10%", left: "5%", width: 300, height: 300,
+        borderRadius: "50%", background: COLORS.cyan + "08",
+        filter: "blur(80px)",
+      }} />
+      <div style={{
+        position: "absolute", bottom: "10%", right: "10%", width: 400, height: 400,
+        borderRadius: "50%", background: COLORS.yellow + "06",
+        filter: "blur(100px)",
+      }} />
+
+      <div style={{
+        background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "40px 36px",
+        maxWidth: 420, width: "100%", position: "relative",
+        boxShadow: "0 25px 80px rgba(0,0,0,0.4)",
+      }}>
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>🚀</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: COLORS.navy, letterSpacing: 1 }}>
+            <span style={{ color: COLORS.cyan }}>PLYNN</span>
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.cyan, marginTop: 2 }}>
+            PLANTILLA INNOVACCIÓN 2026
+          </div>
+        </div>
+
+        {/* Mode tabs */}
+        <div style={{ display: "flex", marginBottom: 24, borderRadius: 10, overflow: "hidden", border: `2px solid ${COLORS.lightGray}` }}>
+          {["login", "register"].map(m => (
+            <button key={m} onClick={() => { setMode(m); setError(""); }}
+              style={{
+                flex: 1, padding: "10px 0", border: "none", cursor: "pointer",
+                fontFamily: "'Montserrat', sans-serif", fontSize: 13, fontWeight: 700,
+                background: mode === m ? COLORS.navy : "#fff",
+                color: mode === m ? "#fff" : COLORS.gray,
+                transition: "all 0.2s",
+              }}>
+              {m === "login" ? "Iniciar Sesión" : "Registrarse"}
+            </button>
+          ))}
+        </div>
+
+        {/* Form */}
+        <div>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
+            Nombre de la empresa
+          </label>
+          <input
+            value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={handleKeyDown}
+            placeholder="Ej: Mi Empresa S.A.S."
+            style={{
+              width: "100%", padding: "12px 16px", borderRadius: 10,
+              border: `2px solid ${COLORS.lightGray}`, fontSize: 15,
+              fontFamily: "'Montserrat', sans-serif", outline: "none",
+              boxSizing: "border-box", marginBottom: 14,
+              transition: "border-color 0.2s",
+            }}
+          />
+
+          {mode === "register" && (
+            <>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
+                Email (opcional)
+              </label>
+              <input
+                value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown}
+                placeholder="correo@empresa.com"
+                type="email"
+                style={{
+                  width: "100%", padding: "12px 16px", borderRadius: 10,
+                  border: `2px solid ${COLORS.lightGray}`, fontSize: 15,
+                  fontFamily: "'Montserrat', sans-serif", outline: "none",
+                  boxSizing: "border-box", marginBottom: 14,
+                }}
+              />
+            </>
+          )}
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
+            Contraseña
+          </label>
+          <input
+            value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown}
+            placeholder="••••••••"
+            type="password"
+            style={{
+              width: "100%", padding: "12px 16px", borderRadius: 10,
+              border: `2px solid ${COLORS.lightGray}`, fontSize: 15,
+              fontFamily: "'Montserrat', sans-serif", outline: "none",
+              boxSizing: "border-box", marginBottom: 8,
+            }}
+          />
+
+          {/* Error message */}
+          {error && (
+            <div style={{
+              background: "#FEF2F2", color: COLORS.red, padding: "8px 12px",
+              borderRadius: 8, fontSize: 13, marginTop: 8, marginBottom: 4,
+              border: `1px solid ${COLORS.red}30`,
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* Submit */}
+          <button onClick={handleSubmit} disabled={loading}
+            style={{
+              width: "100%", padding: "14px 0", borderRadius: 12, border: "none",
+              background: loading ? COLORS.gray : `linear-gradient(135deg, ${COLORS.cyan}, ${COLORS.lightNavy})`,
+              color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer",
+              fontFamily: "'Montserrat', sans-serif", marginTop: 16,
+              boxShadow: loading ? "none" : `0 6px 25px ${COLORS.cyan}40`,
+              transition: "all 0.2s",
+            }}>
+            {loading ? "Conectando..." : mode === "login" ? "Entrar →" : "Registrar empresa →"}
+          </button>
+        </div>
+
+        {/* Footer */}
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: COLORS.gray, lineHeight: 1.6 }}>
+          {mode === "login"
+            ? "Tu progreso se guarda automáticamente en la nube."
+            : "Registra tu empresa para guardar el progreso del Programa INNOVACCIÓN."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// APP WRAPPER — handles auth state
+// ============================================================
+function AppWrapper() {
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    // Check if user is already logged in (saved in localStorage)
+    const savedUser = localStorage.getItem("innovaccion_user");
+    if (savedUser) {
+      setUser(savedUser);
+    }
+    setChecking(false);
+  }, []);
+
+  const handleLogin = (empresa) => {
+    localStorage.setItem("innovaccion_user", empresa);
+    setUser(empresa);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("innovaccion_user");
+    setUser(null);
+  };
+
+  if (checking) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "100vh", fontFamily: "'Montserrat', sans-serif",
+        background: COLORS.navy, color: "#fff",
+      }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🚀</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>Cargando INNOVACCIÓN...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  return <InnovaccionApp user={user} onLogout={handleLogout} />;
+}
+
+// ============================================================
 // MOUNT
 // ============================================================
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(React.createElement(InnovaccionApp));
+root.render(React.createElement(AppWrapper));
   </script>
 </body>
 </html>
