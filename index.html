@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plantilla INNOVACCIÓN 2026 — PLYNN</title>
+  <title>Plantilla INNOVACCIÓN — Cámara de Comercio Aburrá Sur · PLYNN</title>
   <meta name="description" content="Plantilla digital del Programa INNOVACCIÓN de PLYNN. Herramienta para gestionar la innovación en tu empresa.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
@@ -36,42 +36,88 @@ const { useState, useEffect, useCallback, useRef } = React;
 // ============================================================
 // CONFIGURACIÓN — Pega aquí la URL de tu Google Apps Script
 // ============================================================
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvHvdG6J6ekLxrFS4ugpaxsx6BXgGCmniGcfN-NI449RZ8wDKvhX-fL2qXgRMdVbeP/exec;
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvHvdG6J6ekLxrFS4ugpaxsx6BXgGCmniGcfN-NI449RZ8wDKvhX-fL2qXgRMdVbeP/exec";
 
 async function apiCall(action, params = {}) {
-  try {
-    // Build URL with query parameters (same pattern as Retos/Soluciones)
-    let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
-    for (const [key, val] of Object.entries(params)) {
-      if (key === "datos") {
-        // datos goes as encoded payload
-        url += "&payload=" + encodeURIComponent(JSON.stringify(val));
-      } else {
-        url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+  // ── MODO LOCAL (sin backend) ──────────────────────────────
+  // Si no hay URL configurada o la llamada falla, todo se
+  // resuelve con localStorage para que la herramienta funcione
+  // sin necesidad de Google Apps Script.
+  const USE_LOCAL = !APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("TU_URL");
+
+  if (action === "login") {
+    const stored = localStorage.getItem("user_" + params.empresa);
+    if (!stored) return { success: false, error: "Empresa no registrada. Regístrate primero." };
+    const u = JSON.parse(stored);
+    if (u.password !== params.password) return { success: false, error: "Contraseña incorrecta." };
+    return { success: true, empresa: params.empresa };
+  }
+
+  if (action === "register") {
+    const existing = localStorage.getItem("user_" + params.empresa);
+    if (existing) return { success: false, error: "Esta empresa ya está registrada. Inicia sesión." };
+    localStorage.setItem("user_" + params.empresa, JSON.stringify({ password: params.password, email: params.email || "" }));
+    return { success: true };
+  }
+
+  if (action === "load") {
+    const raw = localStorage.getItem(STORAGE_KEY + "_" + params.empresa);
+    if (raw) return { success: true, datos: JSON.parse(raw) };
+    return { success: true, datos: {} };
+  }
+
+  if (action === "save") {
+    // localStorage ya se guarda en el useEffect; aquí solo simulamos éxito
+    // Si hay backend configurado, intentamos también enviarlo
+    if (!USE_LOCAL) {
+      try {
+        let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
+        for (const [key, val] of Object.entries(params)) {
+          if (key === "datos") url += "&payload=" + encodeURIComponent(JSON.stringify(val));
+          else url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+        }
+        const res = await fetch(url);
+        return await res.json();
+      } catch (e) {
+        // Si falla el backend, no pasa nada — ya está en localStorage
+        return { success: true };
       }
     }
-    const res = await fetch(url);
-    return await res.json();
-  } catch (e) {
-    return { success: false, error: "Error de conexión. Intenta de nuevo." };
+    return { success: true };
   }
+
+  // Cualquier otra acción: intento al backend si está configurado
+  if (!USE_LOCAL) {
+    try {
+      let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
+      for (const [key, val] of Object.entries(params)) {
+        if (key === "datos") url += "&payload=" + encodeURIComponent(JSON.stringify(val));
+        else url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+      }
+      const res = await fetch(url);
+      return await res.json();
+    } catch (e) {
+      return { success: false, error: "Error de conexión." };
+    }
+  }
+
+  return { success: true };
 }
 
 // ============================================================
 // PLANTILLA DIGITAL INNOVACCIÓN 2026 — PLYNN
-// Complete digital workbook: 8 talleres, 37 actividades
 // ============================================================
 
 const COLORS = {
-  navy: "#1A3365",
-  cyan: "#0FBAE3",
-  yellow: "#FFBB00",
-  red: "#FF4343",
+  navy: "#1A2E4A",       // Azul oscuro InnovAcción / CCAS
+  cyan: "#00A0B0",       // Teal InnovAcción
+  yellow: "#F5A623",     // Amarillo acento PLYNN
+  red: "#E53935",
   green: "#34C759",
   white: "#FFFFFF",
-  cream: "#F7F8FC",
-  lightCyan: "#E8F8FD",
-  lightNavy: "#2A4A8A",
+  cream: "#F5F7FA",
+  lightCyan: "#E0F5F7",
+  lightNavy: "#223D5E",
   gray: "#6B7280",
   lightGray: "#E5E7EB",
   border: "#D1D5DB",
@@ -80,7 +126,6 @@ const COLORS = {
 const STORAGE_KEY = "innovaccion-data";
 
 const DEFAULT_DATA = {
-  // Taller 1 - Empresa y Comité
   empresa: { nombre: "", sector: "", empleados: "", productos: "", logo: "" },
   comite: [{ departamento: "", nombre: "" }],
   liderInnovacion: "",
@@ -90,24 +135,21 @@ const DEFAULT_DATA = {
     periodicidad: "mensual",
     compromisos: "",
   },
-  // Taller 2 - Canvas y Focos
   canvas: {
     propuestaValor: "", clientes: "", relacionClientes: "",
     canales: "", actividadesClaves: "", recursosClaves: "",
     partners: "", estructuraCostos: "", fuentesIngreso: "",
   },
   focos: [
-    { tipo: "Innovación Producto/servicio", porcentaje: "", descripcion: "" },
-    { tipo: "Innovación Proceso", porcentaje: "", descripcion: "" },
-    { tipo: "Innovación Marketing", porcentaje: "", descripcion: "" },
-    { tipo: "Innovación Organizacional", porcentaje: "", descripcion: "" },
-    { tipo: "Innovación Modelo de negocio", porcentaje: "", descripcion: "" },
+    { tipo: "Innovación Producto/servicio", porcentaje: "" },
+    { tipo: "Innovación Proceso", porcentaje: "" },
+    { tipo: "Innovación Marketing", porcentaje: "" },
+    { tipo: "Innovación Organizacional", porcentaje: "" },
+    { tipo: "Innovación Modelo de negocio", porcentaje: "" },
   ],
-  // Taller 3 - Estrategia
   objetivosEstrategicos: "",
   estrategiaInnovacion: "",
   recursosEstrategia: "",
-  // Taller 4 - Retos
   retosInternos: [],
   retosCadena: [],
   retosSector: [],
@@ -122,7 +164,6 @@ const DEFAULT_DATA = {
   formatoReto: { nombre: "", fecha: "", nombreReto: "", explicacion: "", tipo: "problema" },
   fichaRetoAbierto: "",
   videoRetoAbierto: "",
-  // Taller 5 - Ideas
   ideas: [],
   formatoIdea: { reto: "", nombre: "", fecha: "", nombreIdea: "", explicacion: "", tipo: "problema" },
   ideasEvaluadas: [
@@ -132,30 +173,25 @@ const DEFAULT_DATA = {
     { nombre: "", estrategico: 3, factible: 3 },
   ],
   ideaContinua: "",
-  // Taller 6 - Stage Gate & PMV
   ideasProspeccion: [],
-  ideasPortafolio: [],
   proyectos: [{ nombre: "", calificacion: "" }],
   dimensionesProyecto: Array(16).fill(3),
   pmv: { reto: "", idea: "", mercado: "", funcionalidades: "", evidencias: "" },
-  indicadoresPMV: [{ indicador: "", resultado: "" }],
   conclusionesPMV: "",
   decisionPMV: "avanzar",
-  // Taller 7 - Vigilancia Tecnológica
+  linkValidacionPMV: "",
   vt: {
     tema: "", objetivo: "", alcance: "",
-    fcv: "", descriptores: "",
-    busqueda: [{ fcv: "", fuentes: "" }],
+    fcv: "", descriptores: "", fuentes: "",
+    busquedaTexto: "",
     informe: "",
     boletin: "",
     difusion: "",
   },
-  // Taller 8 - Difusión, Cultura, Indicadores
   planDifusion: "",
   planExplotacion: "",
   programaCultura: "",
   indicadores: [{ nombre: "", objetivo: "", formula: "", fuente: "", meta: "", periodicidad: "", fecha: "" }],
-  // Meta
   currentTaller: 0,
   currentActivity: 0,
   lastSaved: null,
@@ -179,7 +215,7 @@ const TALLERES = [
       { id: "a1", titulo: "Crear el Comité", desc: "Define los miembros del comité de innovación." },
       { id: "a2", titulo: "Organigrama", desc: "Jerarquiza la innovación en la empresa." },
       { id: "a3", titulo: "Líder de Innovación", desc: "Elige el líder de innovación." },
-      { id: "a4", titulo: "Acta del Comité", desc: "Firma el acta de inicio del comité." },
+      { id: "a4", titulo: "Acta del Comité", desc: "Registra el acta de inicio del comité." },
     ]
   },
   {
@@ -219,19 +255,18 @@ const TALLERES = [
     ]
   },
   {
-    id: 6, titulo: "Stage Gate y PMV", icon: "🚀", color: COLORS.lightNavy,
-    intro: "Trabajaremos con el modelo Stage Gate del SGi de PLYNN. Pasarás las ideas por la Fase 1 (Prospección), formularás proyectos en la Fase 2 (Portafolio), y en la Fase 3 construirás y validarás el Producto Mínimo Viable (PMV).",
+    id: 6, titulo: "Portafolio y PMV", icon: "🚀", color: COLORS.lightNavy,
+    intro: "Trabajaremos con el modelo Stage Gate del SGi de PLYNN. Pasarás las ideas por la Fase 1 (Prospección), formularás proyectos en el Portafolio de Proyectos, y construirás y validarás el Producto Mínimo Viable (PMV).",
     actividades: [
       { id: "a20-22", titulo: "Fase 1: Prospección", desc: "Ideas en prospección y decisión." },
-      { id: "a23-24", titulo: "Fase 2: Portafolio", desc: "Formula proyectos de innovación." },
-      { id: "a25", titulo: "Actualizar Stage Gate", desc: "Actualiza el Stage Gate completo." },
+      { id: "a23-24", titulo: "Portafolio de Proyectos", desc: "Formula y prioriza proyectos de innovación." },
       { id: "a26", titulo: "Construir el PMV", desc: "Define y construye el PMV." },
       { id: "a27-28", titulo: "Validar el PMV", desc: "Valida y concluye sobre el PMV." },
     ]
   },
   {
     id: 7, titulo: "Vigilancia Tecnológica", icon: "🔍", color: COLORS.cyan,
-    intro: "Realizarás una Vigilancia Tecnológica usando el asistente PYLAR. Definirás qué vigilar, harás la búsqueda, crearás un informe, diseñarás un boletín y lo difundirás en tu empresa. Todo esto te ayudará a mejorar el PMV y a estar al día con las tendencias.",
+    intro: "Realizarás una Vigilancia Tecnológica usando el asistente PYLAR. Definirás qué vigilar, harás la búsqueda, crearás un informe, diseñarás un boletín y lo difundirás en tu empresa.",
     actividades: [
       { id: "a29", titulo: "Diagnóstico VT", desc: "Define qué vigilar." },
       { id: "a30-31", titulo: "Búsqueda e Informe", desc: "Realiza la búsqueda y el informe." },
@@ -260,21 +295,25 @@ function PostIt({ text, tipo = "necesidad", onDelete, onChange, editable = true 
     oportunidad: { bg: "#6BCB77", text: "#fff" },
   };
   const c = colors[tipo] || colors.necesidad;
+  const rotation = useRef(Math.random() * 4 - 2).current;
   return (
     <div style={{
       background: c.bg, color: c.text, padding: "10px 12px", borderRadius: 4,
-      minWidth: 120, minHeight: 70, position: "relative",
+      width: 140, minHeight: 90, position: "relative",
       boxShadow: "2px 3px 8px rgba(0,0,0,0.15)", fontFamily: "'Caveat', cursive",
       fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center",
-      transform: `rotate(${Math.random() * 4 - 2}deg)`,
+      transform: `rotate(${rotation}deg)`,
     }}>
       {editable ? (
-        <textarea value={text} onChange={e => onChange(e.target.value)}
+        <textarea
+          value={text}
+          onChange={e => onChange(e.target.value)}
           placeholder="Escribe aquí..."
           style={{
             background: "transparent", border: "none", color: c.text,
-            width: "100%", height: "100%", resize: "none", fontFamily: "inherit",
+            width: "100%", minHeight: 60, resize: "none", fontFamily: "inherit",
             fontSize: "inherit", textAlign: "center", outline: "none",
+            cursor: "text", caretColor: c.text,
           }}
         />
       ) : <span>{text}</span>}
@@ -289,9 +328,16 @@ function PostIt({ text, tipo = "necesidad", onDelete, onChange, editable = true 
   );
 }
 
-function MatrizPriorizacion({ items, onChange, labelA = "Reto", labels }) {
+function MatrizPriorizacion({ items, onChange, labelA = "Reto" }) {
   return (
     <div style={{ padding: 16 }}>
+      <div style={{
+        background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`,
+        borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13,
+        color: COLORS.navy, lineHeight: 1.6,
+      }}>
+        📌 <strong>Instrucción:</strong> Para hacer esta priorización usa la <strong>herramienta de priorización de {labelA === "Reto" ? "retos" : "ideas"} de PLYNN</strong> disponible en nuestra plataforma. Con los resultados que te entregue la herramienta, cada {labelA === "Reto" ? "reto" : "idea"} tendrá una nota en <strong>Estratégico</strong> y en <strong>Factible</strong>. Ingresa esas notas aquí para que la plantilla los ubique en la matriz.
+      </div>
       <div style={{
         display: "grid", gridTemplateColumns: "1fr 1fr",
         gap: 2, borderRadius: 12, overflow: "hidden", maxWidth: 600, margin: "0 auto",
@@ -376,7 +422,7 @@ function MatrizPriorizacion({ items, onChange, labelA = "Reto", labels }) {
   );
 }
 
-function StageGateVisual({ fases }) {
+function StageGateVisual() {
   const faseNames = [
     "Prospección\nde Ideas", "Portafolio\nde Proyectos",
     "Desarrollo\nPMV", "Desarrollo\nPrototipo",
@@ -405,16 +451,6 @@ function StageGateVisual({ fases }) {
             )}
           </div>
         ))}
-      </div>
-      <div style={{
-        display: "flex", gap: 4, marginTop: 12, fontSize: 11,
-      }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 10, height: 10, background: COLORS.cyan, borderRadius: 2, display: "inline-block" }} /> Fases activas
-        </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 12 }}>
-          <span style={{ width: 10, height: 10, background: COLORS.lightGray, borderRadius: 2, display: "inline-block" }} /> Fases futuras
-        </span>
       </div>
     </div>
   );
@@ -499,6 +535,90 @@ function InfoBox({ title = "📖 Instrucciones y contexto", children }) {
 // ============================================================
 // ACTIVITY RENDERERS
 // ============================================================
+// ============================================================
+// RETO POST-IT — componente con estado local para evitar pérdida de foco
+// ============================================================
+function RetoPostIt({ text, tipo, onTextChange, onTipoChange, onDelete }) {
+  const [localText, setLocalText] = useState(text);
+  const saveTimeout = useRef(null);
+  const colors = {
+    problema: { bg: "#FF6B6B", text: "#fff" },
+    necesidad: { bg: "#FFD93D", text: "#333" },
+    oportunidad: { bg: "#6BCB77", text: "#fff" },
+  };
+  const c = colors[tipo] || colors.necesidad;
+  const rotation = useRef(Math.random() * 4 - 2).current;
+
+  const handleChange = (val) => {
+    setLocalText(val);
+    // Debounce the parent update to avoid re-renders while typing
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    saveTimeout.current = setTimeout(() => {
+      onTextChange(val);
+    }, 400);
+  };
+
+  return (
+    <div style={{ position: "relative", marginTop: 10 }}>
+      <select value={tipo} onChange={e => onTipoChange(e.target.value)}
+        style={{ position: "absolute", top: -8, left: 2, fontSize: 10, border: "none", background: "transparent", zIndex: 2, cursor: "pointer" }}>
+        <option value="problema">🔴</option>
+        <option value="necesidad">🟡</option>
+        <option value="oportunidad">🟢</option>
+      </select>
+      <div style={{
+        background: c.bg, color: c.text, padding: "10px 12px", borderRadius: 4,
+        width: 140, minHeight: 90, position: "relative",
+        boxShadow: "2px 3px 8px rgba(0,0,0,0.15)", fontFamily: "'Caveat', cursive",
+        fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center",
+        transform: `rotate(${rotation}deg)`,
+      }}>
+        <textarea
+          value={localText}
+          onChange={e => handleChange(e.target.value)}
+          placeholder="Escribe aquí..."
+          style={{
+            background: "transparent", border: "none", color: c.text,
+            width: "100%", minHeight: 60, resize: "none", fontFamily: "inherit",
+            fontSize: "inherit", textAlign: "center", outline: "none",
+            cursor: "text", caretColor: c.text,
+          }}
+        />
+        <button onClick={onDelete} style={{
+          position: "absolute", top: 2, right: 4, background: "none",
+          border: "none", cursor: "pointer", fontSize: 14, opacity: 0.6, color: c.text,
+        }}>✕</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// RETO COLUMN — columna de post-its para cartelera de retos
+// ============================================================
+function RetoColumn({ title, subtitle, retos, onAdd, onUpdate, onDelete }) {
+  return (
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <div style={{ background: "#0D3B47", color: "#fff", padding: 10, textAlign: "center", fontWeight: 700, fontSize: 14, borderRadius: "8px 8px 0 0" }}>{title}</div>
+      <div style={{ background: "#1A5C6B", color: "#ccc", padding: 6, textAlign: "center", fontSize: 11 }}>{subtitle}</div>
+      <div style={{ background: "#E8ECF5", padding: 12, borderRadius: "0 0 8px 8px", minHeight: 220, display: "flex", flexWrap: "wrap", gap: 8, alignContent: "flex-start" }}>
+        {retos.map((r, i) => (
+          <RetoPostIt
+            key={r.id || i}
+            text={r.text}
+            tipo={r.tipo}
+            onTextChange={t => onUpdate(i, { text: t })}
+            onTipoChange={t => onUpdate(i, { tipo: t })}
+            onDelete={() => onDelete(i)}
+          />
+        ))}
+        <button onClick={onAdd}
+          style={{ background: "#0FBCCC", color: "#fff", border: "none", width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, padding: 0, alignSelf: "center", cursor: "pointer", fontFamily: "'Montserrat', sans-serif" }}>+</button>
+      </div>
+    </div>
+  );
+}
+
 function RenderActivity({ activityId, data, setData }) {
   const u = (field, val) => setData(prev => ({ ...prev, [field]: val }));
   const uNested = (field, subfield, val) => setData(prev => ({
@@ -507,12 +627,56 @@ function RenderActivity({ activityId, data, setData }) {
   const [showActa, setShowActa] = useState(false);
 
   switch (activityId) {
+
     // ---- TALLER 0: EMPRESA ----
+    // CORRECCIÓN #1: Logo upload
     case "a1-3":
       return (
         <div>
           <div style={tipStyle}>Diligencia junto con tu equipo los datos que se te piden sobre la empresa.</div>
           <div style={cardStyle}>
+            {/* Logo upload */}
+            <div style={{
+              marginBottom: 20, padding: 16, background: COLORS.cream,
+              borderRadius: 10, border: `2px dashed ${COLORS.cyan}`, textAlign: "center",
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 10 }}>
+                📎 Sube aquí el logo de tu empresa
+              </div>
+              {data.empresa.logo ? (
+                <div>
+                  <img src={data.empresa.logo} alt="Logo empresa"
+                    style={{ maxHeight: 80, maxWidth: 200, objectFit: "contain", marginBottom: 8, borderRadius: 6 }} />
+                  <br />
+                  <button onClick={() => uNested("empresa", "logo", "")}
+                    style={{ ...btnStyle(COLORS.red), padding: "4px 12px", fontSize: 12 }}>
+                    Quitar logo
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 8 }}>
+                    Formato: JPG, PNG o GIF
+                  </div>
+                  <label style={{
+                    ...btnStyle(COLORS.cyan), display: "inline-block", cursor: "pointer",
+                    padding: "8px 20px",
+                  }}>
+                    📁 Seleccionar imagen
+                    <input type="file" accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={e => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = ev => uNested("empresa", "logo", ev.target.result);
+                        reader.readAsDataURL(file);
+                      }} />
+                  </label>
+                </div>
+              )}
+            </div>
+
             <label style={labelStyle}>Nombre de la empresa</label>
             <input style={inputStyle} value={data.empresa.nombre}
               onChange={e => uNested("empresa", "nombre", e.target.value)} placeholder="Ej: Mi Empresa S.A.S." />
@@ -605,13 +769,14 @@ function RenderActivity({ activityId, data, setData }) {
         </div>
       );
 
+    // CORRECCIÓN #2: Acta — quitar "firma", poner "nombres de asistentes"
     case "a4": {
       const actaEmpresa = data.acta.empresa || data.empresa.nombre || "___________________";
       const actaLider = data.liderInnovacion || "_________________________________";
 
       return (
         <div>
-          <div style={tipStyle}>Diligencia los datos del acta y luego presiona <strong>"Leer Acta"</strong> para ver el documento formal completo que será firmado por el comité.</div>
+          <div style={tipStyle}>Diligencia los datos del acta y luego presiona <strong>"Leer Acta"</strong> para ver el documento formal completo.</div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Acta N° 1 — Datos del Comité</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -637,14 +802,18 @@ function RenderActivity({ activityId, data, setData }) {
               </div>
             </div>
 
-            <label style={labelStyle}>Asistentes</label>
+            {/* CORRECCIÓN #2: "Nombres de los asistentes" en lugar de "firma" */}
+            <label style={labelStyle}>Nombres de los asistentes</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 8 }}>
+              Escribe el nombre y cargo de cada persona que asiste a la reunión de inicio del Comité.
+            </div>
             {data.acta.asistentes.map((a, i) => (
               <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
                 <input style={inputStyle} value={a.nombre}
                   onChange={e => {
                     const n = [...data.acta.asistentes]; n[i] = { ...n[i], nombre: e.target.value };
                     uNested("acta", "asistentes", n);
-                  }} placeholder="Nombre" />
+                  }} placeholder="Nombre completo" />
                 <input style={inputStyle} value={a.cargo}
                   onChange={e => {
                     const n = [...data.acta.asistentes]; n[i] = { ...n[i], cargo: e.target.value };
@@ -674,7 +843,6 @@ function RenderActivity({ activityId, data, setData }) {
               onChange={e => uNested("acta", "compromisos", e.target.value)}
               placeholder="Escribe compromisos adicionales del comité..." />
 
-            {/* LEER ACTA BUTTON */}
             <div style={{ textAlign: "center", marginTop: 24 }}>
               <button onClick={() => setShowActa(true)}
                 style={{
@@ -684,14 +852,12 @@ function RenderActivity({ activityId, data, setData }) {
                   fontFamily: "'Montserrat', sans-serif",
                   boxShadow: "0 4px 15px rgba(26,51,101,0.3)",
                   display: "inline-flex", alignItems: "center", gap: 10,
-                  transition: "transform 0.2s, box-shadow 0.2s",
                 }}>
                 📄 Leer Acta Completa
               </button>
             </div>
           </div>
 
-          {/* MODAL / POPUP DEL ACTA */}
           {showActa && (
             <div style={{
               position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -703,7 +869,6 @@ function RenderActivity({ activityId, data, setData }) {
                 maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column",
                 boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
               }}>
-                {/* Header del popup */}
                 <div style={{
                   background: COLORS.navy, color: "#fff", padding: "20px 28px",
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -720,28 +885,18 @@ function RenderActivity({ activityId, data, setData }) {
                     }}>✕</button>
                 </div>
 
-                {/* Cuerpo del acta */}
                 <div style={{
                   overflowY: "auto", padding: "28px 32px",
                   fontFamily: "'Georgia', 'Times New Roman', serif",
                   fontSize: 14, lineHeight: 1.8, color: "#222",
                 }}>
-                  {/* Encabezado formal */}
                   <div style={{ textAlign: "center", marginBottom: 28 }}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: COLORS.navy, letterSpacing: 2, marginBottom: 4 }}>
-                      ACTA N° 1
-                    </div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.navy }}>
-                      ACTA DE INICIO DEL COMITÉ DE INNOVACIÓN
-                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: COLORS.navy, letterSpacing: 2, marginBottom: 4 }}>ACTA N° 1</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.navy }}>ACTA DE INICIO DEL COMITÉ DE INNOVACIÓN</div>
                     <div style={{ width: 80, height: 3, background: COLORS.cyan, margin: "12px auto 0" }} />
                   </div>
 
-                  {/* Datos generales */}
-                  <div style={{
-                    background: COLORS.cream, borderRadius: 10, padding: "16px 20px",
-                    marginBottom: 24, border: `1px solid ${COLORS.lightGray}`,
-                  }}>
+                  <div style={{ background: COLORS.cream, borderRadius: 10, padding: "16px 20px", marginBottom: 24, border: `1px solid ${COLORS.lightGray}` }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14 }}>
                       <div><strong>Fecha:</strong> {data.acta.fecha || "_______________"}</div>
                       <div><strong>Hora:</strong> {data.acta.hora || "_______________"}</div>
@@ -750,9 +905,9 @@ function RenderActivity({ activityId, data, setData }) {
                     </div>
                   </div>
 
-                  {/* Asistentes */}
+                  {/* CORRECCIÓN #2 en el acta: nombres de asistentes, no firmas */}
                   <div style={{ marginBottom: 24 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy, marginBottom: 8 }}>Asistentes:</div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy, marginBottom: 8 }}>Nombres de los Asistentes:</div>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ borderBottom: `2px solid ${COLORS.navy}` }}>
@@ -771,7 +926,6 @@ function RenderActivity({ activityId, data, setData }) {
                     </table>
                   </div>
 
-                  {/* Orden del día */}
                   <div style={{ marginBottom: 24 }}>
                     <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy, marginBottom: 8 }}>Orden del día:</div>
                     <ol style={{ paddingLeft: 20, margin: 0 }}>
@@ -784,27 +938,16 @@ function RenderActivity({ activityId, data, setData }) {
                     </ol>
                   </div>
 
-                  {/* Desarrollo */}
-                  <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy, marginBottom: 16, borderBottom: `2px solid ${COLORS.cyan}`, paddingBottom: 6 }}>
-                    Desarrollo
-                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy, marginBottom: 16, borderBottom: `2px solid ${COLORS.cyan}`, paddingBottom: 6 }}>Desarrollo</div>
 
-                  {/* 1. Quorum */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontWeight: 700, color: COLORS.navy }}>1. Verificación del Quorum</div>
                     <p>Una vez que hemos verificado que el quorum es del 100% de los asistentes, damos continuidad a los temas a tratar en este comité de innovación.</p>
                   </div>
 
-                  {/* 2. Líder */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontWeight: 700, color: COLORS.navy }}>2. Posicionamiento del líder de innovación</div>
-                    <p>
-                      El día de hoy se posiciona en el cargo de Líder de innovación a{" "}
-                      <strong style={{ color: COLORS.cyan, borderBottom: `2px solid ${COLORS.cyan}`, paddingBottom: 1 }}>
-                        {actaLider}
-                      </strong>{" "}
-                      quien de ahora en adelante tiene los siguientes compromisos:
-                    </p>
+                    <p>El día de hoy se posiciona en el cargo de Líder de innovación a <strong style={{ color: COLORS.cyan }}>{actaLider}</strong> quien de ahora en adelante tiene los siguientes compromisos:</p>
                     <ul style={{ paddingLeft: 20 }}>
                       <li>Liderar la implementación del SGi.</li>
                       <li>Luego de implementar el SGi debe gestionar cada proceso con el personal encargado.</li>
@@ -812,16 +955,13 @@ function RenderActivity({ activityId, data, setData }) {
                       <li>Debe presentar al comité y/o a la Junta los resultados de la innovación.</li>
                       <li>Debe motivar la cultura de innovación dentro de la empresa.</li>
                       <li>Debe trabajar de la mano de los directores de proyectos de innovación.</li>
-                      <li>Debe representar a la empresa en el ecosistema de innovación para que la empresa siempre tenga presencia activa.</li>
-                      <li>Debe velar porque el SGi siempre esté rodando, siempre esté funcionando, que el SGi no se detenga.</li>
-                      <li>Y todas las demás actividades que la empresa quiera complementar para el buen funcionamiento del SGi.</li>
+                      <li>Debe representar a la empresa en el ecosistema de innovación.</li>
+                      <li>Debe velar porque el SGi siempre esté rodando y funcionando.</li>
                     </ul>
                   </div>
 
-                  {/* 3. Miembros */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontWeight: 700, color: COLORS.navy }}>3. Nombramiento de los integrantes del comité de innovación</div>
-                    <p>El día de hoy toman posesión los miembros del comité de innovación que a continuación se mencionan:</p>
                     <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
                       <thead>
                         <tr style={{ background: COLORS.cream }}>
@@ -840,22 +980,19 @@ function RenderActivity({ activityId, data, setData }) {
                     </table>
                   </div>
 
-                  {/* 4. Objetivo y funciones */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontWeight: 700, color: COLORS.navy }}>4. Objetivo y funciones del comité de innovación</div>
-                    <p>El objetivo del comité de innovación es velar por que se cumplan con los objetivos de innovación planteados en la Estrategia de innovación que ha definido la empresa, además de ser partícipes en la creación de la cultura de innovación.</p>
-                    <p>El comité de innovación tiene carácter evaluativo, consultivo, motivador y decisorio. Este comité participa en las evaluaciones de retos, ideas, en el seguimiento a los proyectos de innovación y en la difusión y explotación de los resultados de los proyectos de innovación, entre otras actividades. Las decisiones que se tomen en este comité son muy importantes para el éxito de la innovación en la empresa.</p>
+                    <p>El objetivo del comité de innovación es velar por que se cumplan con los objetivos de innovación planteados en la Estrategia de innovación, además de ser partícipes en la creación de la cultura de innovación.</p>
                   </div>
 
-                  {/* 5. Compromisos */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontWeight: 700, color: COLORS.navy }}>5. Compromisos del comité de innovación</div>
                     <ul style={{ paddingLeft: 20 }}>
-                      <li>Apoyar las actividades que realice el líder de innovación para la creación de la cultura de innovación al personal de su departamento.</li>
-                      <li>Apoyar al líder de innovación en la constante capacitación al personal de su departamento en el funcionamiento del Sistema de Gestión de la Innovación.</li>
-                      <li>Ser motivador con su personal y permitirles ser partícipes en la búsqueda de los retos, ideas y proyectos de innovación y de todas las actividades que realice el líder de innovación para generar la cultura en la empresa.</li>
-                      <li>Dar ejemplo al personal a su cargo y participar activamente en todas las actividades de innovación que realice el líder de innovación.</li>
-                      <li>Debe participar en las evaluaciones de retos, ideas, en el seguimiento a los proyectos de innovación y en la difusión e implementación de los resultados de los proyectos de innovación.</li>
+                      <li>Apoyar las actividades del líder de innovación para la creación de la cultura de innovación.</li>
+                      <li>Apoyar al líder de innovación en la capacitación al personal en el funcionamiento del SGi.</li>
+                      <li>Ser motivador con su personal y permitirles ser partícipes en la búsqueda de retos, ideas y proyectos de innovación.</li>
+                      <li>Participar activamente en todas las actividades de innovación.</li>
+                      <li>Participar en las evaluaciones de retos, ideas, seguimiento a proyectos y difusión de resultados.</li>
                     </ul>
                     {data.acta.compromisos && (
                       <div style={{ marginTop: 8, padding: "8px 12px", background: COLORS.lightCyan, borderRadius: 6 }}>
@@ -865,41 +1002,17 @@ function RenderActivity({ activityId, data, setData }) {
                     )}
                   </div>
 
-                  {/* 6. Periodicidad */}
                   <div style={{ marginBottom: 28 }}>
                     <div style={{ fontWeight: 700, color: COLORS.navy }}>6. Periodicidad con la que se reúne el comité de innovación</div>
-                    <p>
-                      El comité de innovación se reunirá una vez {data.acta.periodicidad === "semanal" ? "a la semana" : data.acta.periodicidad === "quincenal" ? "cada quince días" : data.acta.periodicidad === "bimensual" ? "cada dos meses" : data.acta.periodicidad === "trimestral" ? "cada tres meses" : "al mes"} como norma general, en la fecha, lugar, hora que diga el líder de innovación; sin embargo, en caso de ser necesario por algún tema puntual, el líder de innovación puede convocar a este comité cuando lo vea necesario.
-                    </p>
-                  </div>
-
-                  {/* Firmas */}
-                  <div style={{
-                    borderTop: `2px solid ${COLORS.navy}`, paddingTop: 20, marginTop: 20,
-                  }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy, marginBottom: 16 }}>Firmas de los Asistentes</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                      {data.acta.asistentes.map((a, i) => (
-                        <div key={i} style={{ textAlign: "center" }}>
-                          <div style={{ borderBottom: `1px solid #999`, marginBottom: 6, paddingBottom: 30 }} />
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{a.nombre || `Asistente ${i + 1}`}</div>
-                          <div style={{ fontSize: 12, color: COLORS.gray }}>{a.cargo || ""}</div>
-                        </div>
-                      ))}
-                    </div>
+                    <p>El comité de innovación se reunirá una vez {data.acta.periodicidad === "semanal" ? "a la semana" : data.acta.periodicidad === "quincenal" ? "cada quince días" : data.acta.periodicidad === "bimensual" ? "cada dos meses" : data.acta.periodicidad === "trimestral" ? "cada tres meses" : "al mes"}.</p>
                   </div>
                 </div>
 
-                {/* Footer del popup */}
                 <div style={{
                   padding: "16px 28px", borderTop: `1px solid ${COLORS.lightGray}`,
-                  display: "flex", justifyContent: "center", gap: 12,
-                  background: COLORS.cream,
+                  display: "flex", justifyContent: "center", background: COLORS.cream,
                 }}>
-                  <button onClick={() => setShowActa(false)}
-                    style={{ ...btnStyle(COLORS.gray), padding: "10px 24px" }}>
-                    Cerrar
-                  </button>
+                  <button onClick={() => setShowActa(false)} style={{ ...btnStyle(COLORS.gray), padding: "10px 24px" }}>Cerrar</button>
                 </div>
               </div>
             </div>
@@ -913,148 +1026,148 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones para diligenciar el Canvas">
-            <p style={{ marginTop: 8 }}>El CANVAS lo diligencias en el orden que te indican los números.</p>
-            <p>En cada casilla te damos algunos tips de lo que debes colocar en esa casilla.</p>
-            <p>Recuerda que en la <strong>propuesta de valor</strong> debes colocar qué solucionan tus productos al mercado, si es un problema, necesidad u oportunidad y con base en ello redactar la propuesta de valor; puedes ayudarte contestando las preguntas: <strong>¿Qué hace mi empresa?</strong>, <strong>¿Para quién lo hace?</strong> y <strong>¿Qué me diferencia de la competencia?</strong>.</p>
-            <p>En esta misma casilla puedes colocar los productos en diferentes colores, un color para cada producto o línea de productos/servicios.</p>
-            <p>Por último, escribe los focos de innovación que has identificado en el CANVAS.</p>
+            <p style={{ marginTop: 8 }}>El CANVAS lo diligencias en el orden que te indican los números. En cada casilla te damos algunos tips de lo que debes colocar.</p>
+            <p>Recuerda que en la <strong>propuesta de valor</strong> debes colocar qué solucionan tus productos al mercado, contestando: <strong>¿Qué hace mi empresa?</strong>, <strong>¿Para quién lo hace?</strong> y <strong>¿Qué me diferencia de la competencia?</strong>.</p>
           </InfoBox>
-          <div style={tipStyle}>
-            Diligencia el Canvas en el orden indicado por los números (1-9). La propuesta de valor es el centro del modelo.
-          </div>
+          <div style={tipStyle}>Diligencia el Canvas en el orden indicado por los números (1-9).</div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Business Model Canvas</div>
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
-              gridTemplateRows: "auto auto auto",
-              gap: 8, fontSize: 13,
-            }}>
-              {/* Row 1-2 main blocks */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gridTemplateRows: "auto auto auto", gap: 8, fontSize: 13 }}>
               <div style={{ gridRow: "1 / 3", background: "#F0F4FF", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.cyan, fontSize: 11, marginBottom: 4 }}>9. PARTNERS</div>
                 <textarea style={{ ...textareaStyle, minHeight: 140, fontSize: 12 }} value={data.canvas.partners}
-                  onChange={e => uNested("canvas", "partners", e.target.value)}
-                  placeholder="Socios, Proveedores, Consultores..." />
+                  onChange={e => uNested("canvas", "partners", e.target.value)} placeholder="Socios, Proveedores..." />
               </div>
               <div style={{ background: "#F0F4FF", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.cyan, fontSize: 11, marginBottom: 4 }}>7. RECURSOS CLAVES</div>
                 <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 12 }} value={data.canvas.recursosClaves}
-                  onChange={e => uNested("canvas", "recursosClaves", e.target.value)}
-                  placeholder="Maquinaria, Tecnología, RRHH..." />
+                  onChange={e => uNested("canvas", "recursosClaves", e.target.value)} placeholder="Maquinaria, Tecnología..." />
               </div>
               <div style={{ gridRow: "1 / 3", background: "#E8FDF0", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.green, fontSize: 11, marginBottom: 4 }}>1. PROPUESTA DE VALOR</div>
                 <textarea style={{ ...textareaStyle, minHeight: 140, fontSize: 12 }} value={data.canvas.propuestaValor}
-                  onChange={e => uNested("canvas", "propuestaValor", e.target.value)}
-                  placeholder="¿Qué hace mi empresa? ¿Para quién? ¿Qué me diferencia?" />
+                  onChange={e => uNested("canvas", "propuestaValor", e.target.value)} placeholder="¿Qué hace mi empresa? ¿Para quién? ¿Qué me diferencia?" />
               </div>
               <div style={{ background: "#FFF8E8", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.yellow, fontSize: 11, marginBottom: 4 }}>4. RELACIÓN CLIENTES</div>
                 <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 12 }} value={data.canvas.relacionClientes}
-                  onChange={e => uNested("canvas", "relacionClientes", e.target.value)}
-                  placeholder="Asistencia personal, Preferencial..." />
+                  onChange={e => uNested("canvas", "relacionClientes", e.target.value)} placeholder="Asistencia personal..." />
               </div>
               <div style={{ gridRow: "1 / 3", background: "#FFF0F0", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.red, fontSize: 11, marginBottom: 4 }}>2. CLIENTES</div>
                 <textarea style={{ ...textareaStyle, minHeight: 140, fontSize: 12 }} value={data.canvas.clientes}
-                  onChange={e => uNested("canvas", "clientes", e.target.value)}
-                  placeholder="Define claramente tu mercado..." />
+                  onChange={e => uNested("canvas", "clientes", e.target.value)} placeholder="Define claramente tu mercado..." />
               </div>
-              {/* Row 2 middle blocks */}
               <div style={{ background: "#F0F4FF", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.cyan, fontSize: 11, marginBottom: 4 }}>8. ACTIVIDADES CLAVES</div>
                 <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 12 }} value={data.canvas.actividadesClaves}
-                  onChange={e => uNested("canvas", "actividadesClaves", e.target.value)}
-                  placeholder="Producir, Vender, Distribuir..." />
+                  onChange={e => uNested("canvas", "actividadesClaves", e.target.value)} placeholder="Producir, Vender..." />
               </div>
               <div style={{ background: "#FFF8E8", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.yellow, fontSize: 11, marginBottom: 4 }}>3. CANALES</div>
                 <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 12 }} value={data.canvas.canales}
-                  onChange={e => uNested("canvas", "canales", e.target.value)}
-                  placeholder="Información, Evaluación, Compra, Entrega, Postventa..." />
+                  onChange={e => uNested("canvas", "canales", e.target.value)} placeholder="Información, Compra, Entrega..." />
               </div>
-              {/* Row 3 - costs & revenue */}
               <div style={{ gridColumn: "1 / 4", background: "#F8F0FF", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.lightNavy, fontSize: 11, marginBottom: 4 }}>6. ESTRUCTURA DE COSTOS</div>
                 <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 12 }} value={data.canvas.estructuraCostos}
-                  onChange={e => uNested("canvas", "estructuraCostos", e.target.value)}
-                  placeholder="Costos Operativos, Fijos, Variables..." />
+                  onChange={e => uNested("canvas", "estructuraCostos", e.target.value)} placeholder="Costos Fijos, Variables..." />
               </div>
               <div style={{ gridColumn: "4 / 6", background: "#F0FFF0", borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
                 <div style={{ fontWeight: 700, color: COLORS.green, fontSize: 11, marginBottom: 4 }}>5. FUENTES DE INGRESO</div>
                 <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 12 }} value={data.canvas.fuentesIngreso}
-                  onChange={e => uNested("canvas", "fuentesIngreso", e.target.value)}
-                  placeholder="Suscripción, Efectivo, Crédito, Precios..." />
+                  onChange={e => uNested("canvas", "fuentesIngreso", e.target.value)} placeholder="Suscripción, Efectivo..." />
               </div>
             </div>
           </div>
         </div>
       );
 
-    case "a6":
+    // CORRECCIONES #3 y #4: Focos — alerta >100%, quitar campo descripción
+    case "a6": {
+      const totalFocos = data.focos.reduce((s, f) => s + (parseInt(f.porcentaje) || 0), 0);
+      const focosExceden = totalFocos > 100;
       return (
         <div>
           <InfoBox title="📖 Instrucciones y ejemplos de focos de innovación">
-            <p style={{ marginTop: 8 }}>Escribe según el CANVAS los focos de innovación; es decir, donde ha definido el comité de innovación que se van a focalizar los recursos destinados a innovación para el próximo periodo. Recuerda que estos focos son tenidos en cuenta para crear la estrategia de innovación.</p>
-            <p style={{ fontWeight: 700, color: COLORS.navy, marginTop: 12 }}>Ejemplos para redactar los focos de innovación:</p>
+            <p style={{ marginTop: 8 }}>Escribe según el CANVAS los focos de innovación; es decir, donde ha definido el comité que se van a focalizar los recursos destinados a innovación para el próximo periodo.</p>
+            <p style={{ fontWeight: 700, color: COLORS.navy, marginTop: 12 }}>Ejemplos:</p>
             <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
               <li style={{ marginBottom: 6 }}><strong>Innovación en producto:</strong> como empresa de turismo tenemos mucha competencia. Necesitamos encontrar productos innovadores para marcar la diferencia.</li>
-              <li style={{ marginBottom: 6 }}><strong>Innovación en proceso:</strong> necesitamos introducir tecnología para mejorar la atención y la experiencia del cliente.</li>
+              <li style={{ marginBottom: 6 }}><strong>Innovación en proceso:</strong> necesitamos introducir tecnología para mejorar la atención y experiencia del cliente.</li>
               <li style={{ marginBottom: 6 }}><strong>Innovación en Marketing:</strong> necesitamos crear nuevos canales de comunicación para llegarle a los clientes.</li>
-              <li style={{ marginBottom: 6 }}><strong>Innovación organizacional:</strong> vamos a implementar políticas de conciliación laboral y a crear una nueva forma de trabajo basada en equipos multidisciplinarios.</li>
-              <li style={{ marginBottom: 6 }}><strong>Innovación Modelo de Negocio:</strong> Vamos a intraemprender para crear nuestro negocio 100% virtual de manera que sigamos con el negocio actual, pero tengamos otra empresa de servicios 100% virtuales (ejemplo: Bancolombia con Nequi, Wompi o Wenia).</li>
+              <li style={{ marginBottom: 6 }}><strong>Innovación organizacional:</strong> implementar políticas de conciliación laboral y trabajo en equipos multidisciplinarios.</li>
+              <li style={{ marginBottom: 6 }}><strong>Innovación Modelo de Negocio:</strong> crear un negocio 100% virtual (ejemplo: Bancolombia con Nequi).</li>
             </ul>
           </InfoBox>
           <div style={tipStyle}>
-            Escribe según el Canvas los focos de innovación; es decir, dónde se van a focalizar los recursos destinados a innovación. Asigna un porcentaje a cada foco.
+            Asigna un porcentaje a cada foco de innovación. La suma de todos los porcentajes debe ser exactamente <strong>100%</strong>.
           </div>
+
+          {/* CORRECCIÓN #3: Alerta si supera 100% */}
+          {focosExceden && (
+            <div style={{
+              background: "#FEF2F2", border: `2px solid ${COLORS.red}`,
+              borderRadius: 10, padding: "12px 16px", marginBottom: 16,
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 700, color: COLORS.red, fontSize: 14 }}>
+                  La suma de los porcentajes supera el 100% (Total: {totalFocos}%)
+                </div>
+                <div style={{ fontSize: 13, color: "#7F1D1D", marginTop: 2 }}>
+                  Recuerda que la suma de todos los focos debe ser exactamente 100%. Ajusta los porcentajes.
+                </div>
+              </div>
+            </div>
+          )}
+
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Focos de Innovación</div>
+            {/* CORRECCIÓN #4: Solo nombre del foco y porcentaje, sin descripción */}
             {data.focos.map((f, i) => (
               <div key={i} style={{
-                display: "grid", gridTemplateColumns: "1fr 80px",
-                gap: 8, marginBottom: 12, padding: 12, background: COLORS.cream, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                gap: 12, marginBottom: 10, padding: "12px 16px",
+                background: COLORS.cream, borderRadius: 8,
+                border: `1px solid ${COLORS.lightGray}`,
               }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>{f.tipo}</div>
-                  <textarea style={{ ...textareaStyle, minHeight: 50, fontSize: 13 }}
-                    value={f.descripcion}
-                    onChange={e => {
-                      const n = [...data.focos]; n[i] = { ...n[i], descripcion: e.target.value }; u("focos", n);
-                    }}
-                    placeholder="Describe el foco de innovación..." />
+                <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, flex: 1 }}>
+                  {f.tipo}
                 </div>
-                <div style={{ textAlign: "center" }}>
-                  <label style={{ ...labelStyle, fontSize: 11 }}>%</label>
-                  <input type="number" min={0} max={100} style={{ ...inputStyle, textAlign: "center", fontSize: 18, fontWeight: 700 }}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.gray }}>%</label>
+                  <input
+                    type="number" min={0} max={100}
+                    style={{ ...inputStyle, width: 80, textAlign: "center", fontSize: 18, fontWeight: 700 }}
                     value={f.porcentaje}
                     onChange={e => {
                       const n = [...data.focos]; n[i] = { ...n[i], porcentaje: e.target.value }; u("focos", n);
-                    }} />
+                    }}
+                  />
                 </div>
               </div>
             ))}
             <div style={{
-              textAlign: "right", fontWeight: 700, fontSize: 16, color: COLORS.navy, marginTop: 8,
+              textAlign: "right", fontWeight: 700, fontSize: 16, marginTop: 8,
+              color: focosExceden ? COLORS.red : totalFocos === 100 ? COLORS.green : COLORS.navy,
+              padding: "8px 16px",
             }}>
-              Total: {data.focos.reduce((s, f) => s + (parseInt(f.porcentaje) || 0), 0)}%
+              Total: {totalFocos}% {totalFocos === 100 ? "✅" : focosExceden ? "❌ Supera el 100%" : ""}
             </div>
           </div>
         </div>
       );
+    }
 
     // ---- TALLER 3: ESTRATEGIA ----
     case "a7-8":
       return (
         <div>
           <InfoBox title="📖 Para tener en cuenta">
-            <p style={{ marginTop: 8 }}>Para redactar los objetivos y la estrategia de innovación debes tener en cuenta los <strong>objetivos estratégicos</strong> y la <strong>estrategia empresarial</strong>. Recuerda que la estrategia de innovación va ligada a la estrategia empresarial.</p>
-            <p>Puedes usar el asistente <strong>PYLAR de creación de la estrategia de innovación</strong> para ayudarte en este proceso. Escribe aquí los resultados obtenidos en el asistente.</p>
+            <p style={{ marginTop: 8 }}>Para redactar los objetivos y la estrategia de innovación debes tener en cuenta los <strong>objetivos estratégicos</strong> y la <strong>estrategia empresarial</strong>. Puedes usar el asistente <strong>PYLAR de creación de la estrategia de innovación</strong> para ayudarte.</p>
           </InfoBox>
-          <div style={tipStyle}>
-            La estrategia de innovación va ligada a la estrategia empresarial. Usa el asistente PYLAR de creación de la estrategia si necesitas ayuda.
-          </div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Objetivos y Estrategia de Innovación</div>
             <label style={labelStyle}>Objetivos Estratégicos de la Empresa</label>
@@ -1063,10 +1176,10 @@ function RenderActivity({ activityId, data, setData }) {
               placeholder="Escribe los objetivos estratégicos de la empresa..." />
             <label style={labelStyle}>Focos de Innovación (resumen)</label>
             <div style={{ padding: 8, background: COLORS.cream, borderRadius: 6, fontSize: 13, marginBottom: 8 }}>
-              {data.focos.filter(f => f.descripcion).map((f, i) => (
-                <div key={i}>• <strong>{f.tipo}</strong> ({f.porcentaje}%): {f.descripcion}</div>
+              {data.focos.filter(f => f.porcentaje).map((f, i) => (
+                <div key={i}>• <strong>{f.tipo}</strong> ({f.porcentaje}%)</div>
               ))}
-              {!data.focos.some(f => f.descripcion) && <span style={{ color: COLORS.gray }}>Completa los focos en el Taller 2</span>}
+              {!data.focos.some(f => f.porcentaje) && <span style={{ color: COLORS.gray }}>Completa los focos en el Taller 2</span>}
             </div>
             <label style={labelStyle}>Objetivos de Innovación</label>
             <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.objetivosInnovacion || ""}
@@ -1087,99 +1200,50 @@ function RenderActivity({ activityId, data, setData }) {
     // ---- TALLER 4: RETOS ----
     case "a9": {
       const addReto = (field) => {
-        u(field, [...data[field], { text: "", tipo: "necesidad" }]);
+        const newReto = { id: Date.now() + Math.random(), text: "", tipo: "necesidad" };
+        u(field, [...data[field], newReto]);
       };
       const updateReto = (field, i, val) => {
         const n = [...data[field]]; n[i] = { ...n[i], ...val }; u(field, n);
       };
       const deleteReto = (field, i) => u(field, data[field].filter((_, j) => j !== i));
 
-      const RetoColumn = ({ title, field, subtitle }) => (
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{
-            background: COLORS.navy, color: "#fff", padding: 10,
-            textAlign: "center", fontWeight: 700, fontSize: 14, borderRadius: "8px 8px 0 0",
-          }}>{title}</div>
-          <div style={{
-            background: "#2C3E6B", color: "#ccc", padding: 6,
-            textAlign: "center", fontSize: 11,
-          }}>{subtitle}</div>
-          <div style={{
-            background: "#E8ECF5", padding: 12, borderRadius: "0 0 8px 8px",
-            minHeight: 200, display: "flex", flexWrap: "wrap", gap: 8,
-            alignContent: "flex-start",
-          }}>
-            {data[field].map((r, i) => (
-              <div key={i} style={{ position: "relative" }}>
-                <select value={r.tipo} onChange={e => updateReto(field, i, { tipo: e.target.value })}
-                  style={{ position: "absolute", top: -6, left: 2, fontSize: 9, border: "none", background: "transparent", zIndex: 2 }}>
-                  <option value="problema">🔴</option>
-                  <option value="necesidad">🟡</option>
-                  <option value="oportunidad">🟢</option>
-                </select>
-                <PostIt text={r.text} tipo={r.tipo}
-                  onChange={t => updateReto(field, i, { text: t })}
-                  onDelete={() => deleteReto(field, i)} />
-              </div>
-            ))}
-            <button onClick={() => addReto(field)}
-              style={{
-                ...btnStyle(COLORS.cyan), width: 40, height: 40, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, padding: 0, alignSelf: "center",
-              }}>+</button>
-          </div>
-        </div>
-      );
-
       return (
         <div>
           <InfoBox title="📖 Explicación del taller de retos">
             <p style={{ marginTop: 8 }}>Crear la cartelera de retos usando los post-its del color adecuado: <strong style={{ color: "#FF6B6B" }}>rojo = problema</strong>, <strong style={{ color: "#D4A800" }}>amarillo = necesidad</strong>, <strong style={{ color: "#6BCB77" }}>verde = oportunidad</strong>.</p>
-            <p>Los integrantes del equipo van poniendo retos empezando por los <strong>retos internos</strong>, luego <strong>retos del mercado (cadena de valor)</strong> y por último <strong>retos del sector</strong>.</p>
-            <p>Una vez has terminado de poner los retos, debes elegir <strong>4 retos</strong> para ser evaluados usando la herramienta de PLYNN que encontrarás en nuestra plataforma.</p>
-            <p>Estos 4 retos los vamos a priorizar usando la herramienta de PLYNN para priorización de retos. Con esta tabla sabemos qué retos se trabajan como <strong>innovación cerrada</strong>, <strong>innovación abierta</strong>, <strong>intraemprendimiento</strong> o se <strong>descartan</strong>.</p>
-            <p>De los 4 retos evaluados debes elegir:</p>
-            <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 4 }}>Un solo reto del cuadrante de <strong>innovación cerrada</strong>, para que continúes trabajando con este reto en el Programa.</li>
-              <li style={{ marginBottom: 4 }}>Un solo reto del cuadrante de <strong>innovación abierta</strong> para publicarlo en la plataforma de innovación abierta de PLYNN y así buscar solvers.</li>
-            </ul>
+            <p>Los integrantes del equipo van poniendo retos empezando por los <strong>retos internos</strong>, luego <strong>retos del mercado</strong> y por último <strong>retos del sector</strong>.</p>
             <p><strong>Para redactar los retos recuerda hacerlo en forma de pregunta.</strong></p>
-            <p>En este taller se les ha pedido a los equipos encontrar todos los retos que puedan, entre más retos, mejor.</p>
           </InfoBox>
-          <div style={tipStyle}>
-            Usando post-its del color adecuado (🔴 problema, 🟡 necesidad, 🟢 oportunidad), pon los retos empezando por internos, luego cadena de valor, y por último del sector. <strong>Redáctalos en forma de pregunta.</strong>
-          </div>
+          <div style={tipStyle}>Haz clic en "+" para agregar un post-it y escribe tu reto directamente en él. 🔴 problema · 🟡 necesidad · 🟢 oportunidad</div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <RetoColumn title="Retos Internos" field="retosInternos" subtitle="Al interior de la empresa" />
-            <RetoColumn title="Retos de la Cadena" field="retosCadena" subtitle="Clientes, proveedores, comunidad" />
-            <RetoColumn title="Retos del Sector" field="retosSector" subtitle="Sector de la empresa" />
+            <RetoColumn title="Retos Internos" subtitle="Al interior de la empresa"
+              retos={data.retosInternos}
+              onAdd={() => addReto("retosInternos")}
+              onUpdate={(i, val) => updateReto("retosInternos", i, val)}
+              onDelete={(i) => deleteReto("retosInternos", i)} />
+            <RetoColumn title="Retos de la Cadena" subtitle="Clientes, proveedores, comunidad"
+              retos={data.retosCadena}
+              onAdd={() => addReto("retosCadena")}
+              onUpdate={(i, val) => updateReto("retosCadena", i, val)}
+              onDelete={(i) => deleteReto("retosCadena", i)} />
+            <RetoColumn title="Retos del Sector" subtitle="Sector de la empresa"
+              retos={data.retosSector}
+              onAdd={() => addReto("retosSector")}
+              onUpdate={(i, val) => updateReto("retosSector", i, val)}
+              onDelete={(i) => deleteReto("retosSector", i)} />
           </div>
         </div>
       );
     }
 
+    // CORRECCIÓN #6: Evaluación de retos — instrucción herramienta PLYNN
     case "a10":
       return (
         <div>
           <InfoBox title="📖 Cómo evaluar los retos">
-            <p style={{ marginTop: 8 }}>Elige 4 retos de los encontrados en el taller para ser evaluados. En lo posible analiza que entre estos 4 retos elegidos puedan haber de innovación abierta y cerrada, aunque esto se sabrá mejor cuando los 4 retos se califiquen.</p>
-            <p>Cada reto se califica en dos dimensiones:</p>
-            <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 4 }}><strong>Estratégico (1-5):</strong> Qué tan alineado está el reto con la estrategia de la empresa.</li>
-              <li style={{ marginBottom: 4 }}><strong>Factible (1-5):</strong> Qué tan viable es resolver este reto con los recursos disponibles.</li>
-            </ul>
-            <p>Según la calificación, los retos caen en uno de 4 cuadrantes:</p>
-            <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 4 }}><strong>Innovación Cerrada</strong> (Alto Estratégico + Alto Factible): se trabajan internamente.</li>
-              <li style={{ marginBottom: 4 }}><strong>Intraemprendimiento</strong> (Bajo Estratégico + Alto Factible).</li>
-              <li style={{ marginBottom: 4 }}><strong>Innovación Abierta</strong> (Alto Estratégico + Bajo Factible): se buscan solvers externos.</li>
-              <li style={{ marginBottom: 4 }}><strong>Descartados</strong> (Bajo Estratégico + Bajo Factible).</li>
-            </ul>
+            <p style={{ marginTop: 8 }}>Elige 4 retos de los encontrados en el taller para ser evaluados y priorizados.</p>
           </InfoBox>
-          <div style={tipStyle}>
-            Elige 4 retos para ser evaluados. Califica cada uno en las dimensiones estratégico y factible (1-5). Puedes usar la herramienta de PLYNN para priorización de retos.
-          </div>
           <MatrizPriorizacion items={data.retosEvaluados} onChange={v => u("retosEvaluados", v)} labelA="Reto" />
         </div>
       );
@@ -1188,7 +1252,7 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div style={cardStyle}>
           <div style={sectionTitleStyle}>Reto de Innovación Cerrada que Continúa</div>
-          <div style={tipStyle}>Este reto se publica internamente en la empresa para buscar entre los empleados ideas innovadoras.</div>
+          <div style={tipStyle}>Este reto se trabaja internamente en la empresa para buscar ideas innovadoras entre los empleados.</div>
           <textarea style={{ ...textareaStyle, minHeight: 80, fontSize: 16 }}
             value={data.retoCerrado}
             onChange={e => u("retoCerrado", e.target.value)}
@@ -1200,38 +1264,34 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones del formato de retos">
-            <p style={{ marginTop: 8 }}>Selecciona solo un reto de innovación cerrada de los encontrados en el taller para diligenciar este formato. A este reto debes diligenciarle completamente el formato.</p>
-            <p>Recuerda que el color del reto depende de si es un <strong style={{ color: "#FF6B6B" }}>problema (rojo)</strong>, una <strong style={{ color: "#D4A800" }}>necesidad (amarillo)</strong> o una <strong style={{ color: "#6BCB77" }}>oportunidad (verde)</strong>.</p>
+            <p style={{ marginTop: 8 }}>Selecciona solo un reto de innovación cerrada para diligenciar este formato completo.</p>
           </InfoBox>
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Formato de Retos</div>
-          <label style={labelStyle}>Nombre de quien identificó el reto</label>
-          <input style={inputStyle} value={data.formatoReto.nombre}
-            onChange={e => uNested("formatoReto", "nombre", e.target.value)} />
-          <label style={labelStyle}>Fecha</label>
-          <input type="date" style={inputStyle} value={data.formatoReto.fecha}
-            onChange={e => uNested("formatoReto", "fecha", e.target.value)} />
-          <label style={labelStyle}>Nombre del reto</label>
-          <input style={inputStyle} value={data.formatoReto.nombreReto}
-            onChange={e => uNested("formatoReto", "nombreReto", e.target.value)} />
-          <label style={labelStyle}>Breve explicación del reto</label>
-          <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.formatoReto.explicacion}
-            onChange={e => uNested("formatoReto", "explicacion", e.target.value)} />
-          <label style={labelStyle}>Tipo de reto</label>
-          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-            {["problema", "necesidad", "oportunidad"].map(t => (
-              <label key={t} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                <input type="radio" checked={data.formatoReto.tipo === t}
-                  onChange={() => uNested("formatoReto", "tipo", t)} />
-                <span style={{
-                  width: 16, height: 16, borderRadius: 4, display: "inline-block",
-                  background: t === "problema" ? "#FF6B6B" : t === "oportunidad" ? "#6BCB77" : "#FFD93D",
-                }} />
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </label>
-            ))}
+            <div style={sectionTitleStyle}>Formato de Retos</div>
+            <label style={labelStyle}>Nombre de quien identificó el reto</label>
+            <input style={inputStyle} value={data.formatoReto.nombre}
+              onChange={e => uNested("formatoReto", "nombre", e.target.value)} />
+            <label style={labelStyle}>Fecha</label>
+            <input type="date" style={inputStyle} value={data.formatoReto.fecha}
+              onChange={e => uNested("formatoReto", "fecha", e.target.value)} />
+            <label style={labelStyle}>Nombre del reto</label>
+            <input style={inputStyle} value={data.formatoReto.nombreReto}
+              onChange={e => uNested("formatoReto", "nombreReto", e.target.value)} />
+            <label style={labelStyle}>Breve explicación del reto</label>
+            <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.formatoReto.explicacion}
+              onChange={e => uNested("formatoReto", "explicacion", e.target.value)} />
+            <label style={labelStyle}>Tipo de reto</label>
+            <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+              {["problema", "necesidad", "oportunidad"].map(t => (
+                <label key={t} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                  <input type="radio" checked={data.formatoReto.tipo === t}
+                    onChange={() => uNested("formatoReto", "tipo", t)} />
+                  <span style={{ width: 16, height: 16, borderRadius: 4, display: "inline-block", background: t === "problema" ? "#FF6B6B" : t === "oportunidad" ? "#6BCB77" : "#FFD93D" }} />
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
         </div>
       );
 
@@ -1239,13 +1299,10 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones para el reto de innovación abierta">
-            <p style={{ marginTop: 8 }}>De los 4 retos evaluados debes elegir un solo reto del cuadrante de <strong>innovación abierta</strong> para publicarlo en la plataforma de innovación abierta de PLYNN y así buscar solvers que le den ideas innovadoras de solución al reto.</p>
-            <p>Debes diligenciar la ficha del reto de innovación abierta que vas a publicar en la plataforma.</p>
-            <p>Además, debes grabar un <strong>video de máximo 1 minuto</strong> explicando el reto de innovación abierta que se va a publicar.</p>
+            <p style={{ marginTop: 8 }}>De los 4 retos evaluados elige un reto del cuadrante de <strong>innovación abierta</strong> para publicarlo en la plataforma de PLYNN.</p>
           </InfoBox>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Reto de Innovación Abierta</div>
-            <div style={tipStyle}>Este reto se publica externamente para buscar solvers que den ideas innovadoras.</div>
             <label style={labelStyle}>Reto de innovación abierta elegido</label>
             <textarea style={textareaStyle} value={data.retoAbierto}
               onChange={e => u("retoAbierto", e.target.value)}
@@ -1263,20 +1320,30 @@ function RenderActivity({ activityId, data, setData }) {
       );
 
     // ---- TALLER 5: IDEAS ----
+    // CORRECCIÓN #7: Cartelera de ideas debe mostrar el reto al que se le generan ideas
     case "a16": {
-      const addIdea = () => u("ideas", [...data.ideas, { text: "", tipo: "necesidad", reto: "" }]);
+      const addIdea = () => u("ideas", [...data.ideas, { text: "", tipo: "necesidad", reto: data.retoCerrado || "" }]);
       return (
         <div>
           <InfoBox title="📖 Para tener en cuenta sobre las ideas">
-            <p style={{ marginTop: 8 }}>Debes montar en esta plantilla los resultados obtenidos en el taller.</p>
-            <p>Recuerda diligenciar el formato de ideas para una idea.</p>
-            <p>Recuerda que las ideas llevan el <strong>color del reto al que le dan solución</strong>, dependiendo si son problemas, necesidades u oportunidades.</p>
-            <p>Para priorizar las ideas contamos con una herramienta en PLYNN para priorizar ideas de innovación que podrás usar con tu equipo de trabajo. El resultado debes colocarlo en esta plantilla donde se te indica.</p>
-            <p>Las ideas que postulen los solvers a los retos de innovación abierta publicados en la plataforma de PLYNN, la empresa debe entrar a verlos en la plataforma y contactar a los solvers tanto si hay interés en seguir como si no hay interés.</p>
+            <p style={{ marginTop: 8 }}>Recuerda que las ideas siempre se generan para un reto específico. Cada idea lleva el <strong>color del reto al que le da solución</strong>.</p>
+            <p>Para priorizar las ideas usa la <strong>herramienta de priorización de ideas de PLYNN</strong> en nuestra plataforma.</p>
           </InfoBox>
-          <div style={tipStyle}>
-            Publica los retos priorizados y escribe ideas innovadoras para cada uno. El post-it lleva el mismo color del reto. Si tienes muchas ideas para un mismo reto debes filtrarlas por si hay ideas incompletas o mal redactadas.
+
+          {/* CORRECCIÓN #7: Mostrar el reto al que se generan ideas */}
+          <div style={{
+            background: COLORS.navy, color: "#fff", borderRadius: 10,
+            padding: "14px 18px", marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>
+              ⚡ Reto al que le vamos a generar ideas
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>
+              {data.retoCerrado || <span style={{ opacity: 0.5, fontStyle: "italic" }}>No has definido aún el reto de innovación cerrada. Ve al Taller 4 primero.</span>}
+            </div>
           </div>
+
+          <div style={tipStyle}>Haz clic en "+" para agregar una idea. Escribe tu idea directamente en el post-it.</div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Cartelera de Ideas Innovadoras</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
@@ -1305,44 +1372,41 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones del formato de ideas">
-            <p style={{ marginTop: 8 }}>Para efectos del caso selecciona solo una idea de las encontradas en el taller para diligenciar este formato.</p>
-            <p>Recuerda que el <strong>color de la idea es el mismo color del reto</strong> al que le da solución.</p>
+            <p style={{ marginTop: 8 }}>Selecciona solo una idea de las encontradas en el taller para diligenciar este formato. El <strong>color de la idea es el mismo color del reto</strong> al que le da solución.</p>
           </InfoBox>
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Formato de Ideas</div>
-          <label style={labelStyle}>Reto al que le da solución esta idea</label>
-          <input style={inputStyle} value={data.formatoIdea.reto}
-            onChange={e => uNested("formatoIdea", "reto", e.target.value)} />
-          <label style={labelStyle}>Nombre de quien identificó la idea</label>
-          <input style={inputStyle} value={data.formatoIdea.nombre}
-            onChange={e => uNested("formatoIdea", "nombre", e.target.value)} />
-          <label style={labelStyle}>Fecha</label>
-          <input type="date" style={inputStyle} value={data.formatoIdea.fecha}
-            onChange={e => uNested("formatoIdea", "fecha", e.target.value)} />
-          <label style={labelStyle}>Nombre de la idea</label>
-          <input style={inputStyle} value={data.formatoIdea.nombreIdea}
-            onChange={e => uNested("formatoIdea", "nombreIdea", e.target.value)} />
-          <label style={labelStyle}>Breve explicación de la idea</label>
-          <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.formatoIdea.explicacion}
-            onChange={e => uNested("formatoIdea", "explicacion", e.target.value)} />
-          <label style={labelStyle}>Color de la idea (mismo del reto)</label>
-          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-            {["problema", "necesidad", "oportunidad"].map(t => (
-              <label key={t} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                <input type="radio" checked={data.formatoIdea.tipo === t}
-                  onChange={() => uNested("formatoIdea", "tipo", t)} />
-                <span style={{
-                  width: 16, height: 16, borderRadius: 4, display: "inline-block",
-                  background: t === "problema" ? "#FF6B6B" : t === "oportunidad" ? "#6BCB77" : "#FFD93D",
-                }} />
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </label>
-            ))}
+            <div style={sectionTitleStyle}>Formato de Ideas</div>
+            <label style={labelStyle}>Reto al que le da solución esta idea</label>
+            <input style={inputStyle} value={data.formatoIdea.reto}
+              onChange={e => uNested("formatoIdea", "reto", e.target.value)} />
+            <label style={labelStyle}>Nombre de quien identificó la idea</label>
+            <input style={inputStyle} value={data.formatoIdea.nombre}
+              onChange={e => uNested("formatoIdea", "nombre", e.target.value)} />
+            <label style={labelStyle}>Fecha</label>
+            <input type="date" style={inputStyle} value={data.formatoIdea.fecha}
+              onChange={e => uNested("formatoIdea", "fecha", e.target.value)} />
+            <label style={labelStyle}>Nombre de la idea</label>
+            <input style={inputStyle} value={data.formatoIdea.nombreIdea}
+              onChange={e => uNested("formatoIdea", "nombreIdea", e.target.value)} />
+            <label style={labelStyle}>Breve explicación de la idea</label>
+            <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.formatoIdea.explicacion}
+              onChange={e => uNested("formatoIdea", "explicacion", e.target.value)} />
+            <label style={labelStyle}>Color de la idea (mismo del reto)</label>
+            <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+              {["problema", "necesidad", "oportunidad"].map(t => (
+                <label key={t} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                  <input type="radio" checked={data.formatoIdea.tipo === t}
+                    onChange={() => uNested("formatoIdea", "tipo", t)} />
+                  <span style={{ width: 16, height: 16, borderRadius: 4, display: "inline-block", background: t === "problema" ? "#FF6B6B" : t === "oportunidad" ? "#6BCB77" : "#FFD93D" }} />
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
         </div>
       );
 
+    // CORRECCIÓN #8: Evaluación de ideas — instrucción herramienta PLYNN
     case "a18":
       return (
         <div>
@@ -1362,51 +1426,33 @@ function RenderActivity({ activityId, data, setData }) {
         </div>
       );
 
-    // ---- TALLER 6: STAGE GATE & PMV ----
+    // ---- TALLER 6: PORTAFOLIO Y PMV ----
     case "a20-22": {
       const addIP = () => u("ideasProspeccion", [...data.ideasProspeccion, { nombre: "", decision: "avanzar" }]);
       return (
         <div>
           <InfoBox title="📖 ¿Qué debes hacer en este taller?">
-            <p style={{ marginTop: 8 }}>Vamos a trabajar las dos primeras fases del <strong>Stage Gate</strong> que usamos en el SGi de PLYNN:</p>
-            <ol style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li><strong>FASE 1. Prospección de IDEAS</strong> (tanto ideas de innovación cerrada como abierta).</li>
-              <li><strong>FASE 2. Portafolio de proyectos de innovación.</strong></li>
-              <li>FASE 3. Desarrollo y validación del Producto Mínimo Viable (PMV).</li>
-              <li>FASE 4. Desarrollo del prototipo.</li>
-              <li>FASE 5. Prueba y validación del prototipo funcional.</li>
-              <li>FASE 6. Desarrollo del producto.</li>
-            </ol>
-            <p>El Comité de innovación elige uno de estos botones luego de evaluar cada idea:</p>
+            <p style={{ marginTop: 8 }}>Vamos a trabajar con el <strong>Stage Gate</strong> del SGi de PLYNN. El comité elige para cada idea:</p>
             <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 4 }}><strong style={{ color: COLORS.cyan }}>AVANZAR:</strong> Ideas que se deben formular como proyectos y guardarse en el portafolio de proyectos.</li>
-              <li style={{ marginBottom: 4 }}><strong style={{ color: COLORS.yellow }}>REVISAR:</strong> Ideas que se quedan en el banco de ideas hasta que el comité decida revisarlas nuevamente.</li>
-              <li style={{ marginBottom: 4 }}><strong style={{ color: COLORS.red }}>PARAR:</strong> Ideas que salen del proceso, no continúan.</li>
+              <li><strong style={{ color: COLORS.cyan }}>AVANZAR:</strong> Ideas que se formulan como proyectos.</li>
+              <li><strong style={{ color: COLORS.yellow }}>REVISAR:</strong> Ideas que se quedan en el banco hasta nueva decisión.</li>
+              <li><strong style={{ color: COLORS.red }}>PARAR:</strong> Ideas que salen del proceso.</li>
             </ul>
           </InfoBox>
           <StageGateVisual />
-          <div style={tipStyle}>Escribe las ideas en prospección (banco de ideas + innovación abierta). El comité decide: Avanzar, Revisar o Parar.</div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Fase 1 — Prospección de Ideas</div>
             {data.ideasProspeccion.map((ip, i) => (
-              <div key={i} style={{
-                display: "flex", gap: 8, marginBottom: 8, alignItems: "center",
-                padding: 8, background: COLORS.cream, borderRadius: 8,
-              }}>
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center", padding: 8, background: COLORS.cream, borderRadius: 8 }}>
                 <input style={{ ...inputStyle, flex: 1 }} value={ip.nombre}
-                  onChange={e => {
-                    const n = [...data.ideasProspeccion]; n[i] = { ...n[i], nombre: e.target.value }; u("ideasProspeccion", n);
-                  }} placeholder={`Idea ${i + 1}`} />
+                  onChange={e => { const n = [...data.ideasProspeccion]; n[i] = { ...n[i], nombre: e.target.value }; u("ideasProspeccion", n); }}
+                  placeholder={`Idea ${i + 1}`} />
                 <div style={{ display: "flex", gap: 4 }}>
                   {["avanzar", "revisar", "parar"].map(d => (
-                    <button key={d} onClick={() => {
-                      const n = [...data.ideasProspeccion]; n[i] = { ...n[i], decision: d }; u("ideasProspeccion", n);
-                    }} style={{
-                      ...btnStyle(d === "avanzar" ? COLORS.cyan : d === "revisar" ? COLORS.yellow : COLORS.red),
-                      opacity: ip.decision === d ? 1 : 0.3,
-                      color: d === "revisar" ? "#333" : "#fff",
-                      padding: "6px 10px", fontSize: 11,
-                    }}>{d.charAt(0).toUpperCase() + d.slice(1)}</button>
+                    <button key={d} onClick={() => { const n = [...data.ideasProspeccion]; n[i] = { ...n[i], decision: d }; u("ideasProspeccion", n); }}
+                      style={{ ...btnStyle(d === "avanzar" ? COLORS.cyan : d === "revisar" ? COLORS.yellow : COLORS.red), opacity: ip.decision === d ? 1 : 0.3, color: d === "revisar" ? "#333" : "#fff", padding: "6px 10px", fontSize: 11 }}>
+                      {d.charAt(0).toUpperCase() + d.slice(1)}
+                    </button>
                   ))}
                 </div>
                 <button onClick={() => u("ideasProspeccion", data.ideasProspeccion.filter((_, j) => j !== i))}
@@ -1419,92 +1465,37 @@ function RenderActivity({ activityId, data, setData }) {
       );
     }
 
-    case "a23-24": {
+    // CORRECCIONES #9: Portafolio — instrucción herramienta PLYNN, quitar "Fase 2" del título
+case "a23-24": {
       const addProy = () => u("proyectos", [...data.proyectos, { nombre: "", calificacion: "" }]);
-      const DIMS = [
-        "Madurez de la tecnología", "Tipo de innovación", "Dominio de la tecnología",
-        "Riesgo técnico", "Madurez del mercado", "Competencia del mercado",
-        "Conocimiento del mercado", "Riesgo comercial", "Infraestructura",
-        "Inversión necesaria", "Beneficio económico", "Tiempo de implementación",
-        "Necesita aliados", "Impacto ambiental", "Impacto social", "Riesgo técnico y comercial",
-      ];
-      const DIMS_DESC = [
-        "Madura/Emergente (1 Madura – 5 Emergente)",
-        "Incremental/Radical (1 Incremental – 5 Radical)",
-        "Conocida/Nueva. La empresa cuenta o no con el conocimiento (1 No tiene – 5 Domina)",
-        "Probabilidad alta o baja de fracaso técnico (1 Alta – 5 Baja)",
-        "En crecimiento/En declinación (1 Declinación – 5 Crecimiento)",
-        "Alta/Baja (1 Alta – 5 Baja)",
-        "Conocido/Nuevo (1 Nuevo – 5 Conocido)",
-        "Probabilidad alta o baja de fracaso comercial (1 Alta – 5 Baja)",
-        "La empresa cuenta con la tecnología y los espacios físicos (1 No – 5 Sí)",
-        "Muy alta/Alta/Media/Baja/Muy baja (1 Muy alta – 5 Muy baja)",
-        "Muy alto/Alto/Medio/Bajo/Muy bajo (1 Muy bajo – 5 Muy alto)",
-        "Muy alto/Alto/Medio/Bajo/Muy bajo (1 Muy alto – 5 Muy bajo)",
-        "1 Muchos – 5 Ninguno",
-        "Muy positivo a Muy negativo (1 Muy negativo – 5 Muy positivo)",
-        "Muy positivo a Muy negativo (1 Muy negativo – 5 Muy positivo)",
-        "Probabilidad de fracaso técnico VS comercial (1 Muy alta – 5 Muy baja)",
-      ];
       return (
         <div>
-          <InfoBox title="📖 Recordatorio sobre formulación de proyectos">
-            <p style={{ marginTop: 8 }}><strong>FORMULACIÓN DE PROYECTOS DE INNOVACIÓN:</strong></p>
-            <p>Para formular los proyectos y crear el portafolio de proyectos de innovación puedes hacerlo usando la <strong>Norma NTC 5802</strong> Gestión de la Investigación, Desarrollo e Innovación (I+D+i). Requisitos de un Proyecto de I+D+i, o puedes usar la formulación que usaremos para este caso de estudio.</p>
-            <p>Lo normal en una empresa es que todas las ideas que avanzan al portafolio de proyectos estén formuladas como proyectos. Para nuestro caso de estudio, elige mínimo dos ideas para formular como proyecto.</p>
-            <p>Se deben formular proyectos que vengan tanto de retos de <strong>innovación cerrada</strong> como de <strong>innovación abierta</strong>. En los formatos que PLYNN les proporcionará.</p>
-            <p>Para avanzar a la siguiente fase de desarrollo de PMV, se deben evaluar todas las ideas que están formuladas como proyecto en el portafolio de proyectos, teniendo en cuenta las métricas de evaluación.</p>
-            <p>Recuerda que el líder de innovación debe convocar al comité de innovación, siempre que vaya a analizar las ideas, proyectos, PMV o prototipo que hay en una fase y definir a cuáles se les abrirá la puerta para pasar a la siguiente fase.</p>
-            <p>Avanzan a la fase 3 el proyecto que saque la mayor nota, al calificar las variables que se usan para la priorización de los proyectos.</p>
-            <p><strong>Para formular proyectos usa el asistente PYLAR de formulación de proyectos de I+D+i.</strong></p>
+          <InfoBox title="📖 Portafolio de Proyectos de I+D+i">
+            <p style={{ marginTop: 8 }}>Para <strong>formular los proyectos</strong> usa el asistente <strong>PYLAR de formulación de proyectos de I+D+i</strong>.</p>
+            <p style={{ marginTop: 8 }}>Para <strong>priorizar los proyectos</strong> usa la <strong>herramienta de priorización de proyectos de PLYNN</strong> disponible en nuestra plataforma. Con los resultados que te dé la herramienta, ingresa aquí el nombre y la calificación de cada proyecto.</p>
           </InfoBox>
           <StageGateVisual />
-          <div style={tipStyle}>Formula los proyectos y evalúalos con las 16 dimensiones. Para una formulación detallada, usa el asistente PYLAR. Para priorizar proyectos utiliza la herramienta de PLYNN de priorización de proyectos de I+D+i.</div>
+          <div style={tipStyle}>Con los resultados de la herramienta de priorización de PLYNN, escribe el nombre de cada proyecto y su calificación.</div>
           <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Fase 2 — Portafolio de Proyectos</div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: COLORS.navy, color: "#fff" }}>
-                    <th style={{ padding: 8, textAlign: "left" }}>Dimensión</th>
-                    <th style={{ padding: 8 }}>Valoración (1-5)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DIMS.map((dim, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${COLORS.lightGray}`, background: i % 2 ? COLORS.cream : "#fff" }}>
-                      <td style={{ padding: 8, fontSize: 12 }}>
-                        <div style={{ fontWeight: 600 }}>{dim}</div>
-                        <div style={{ fontSize: 11, color: COLORS.gray, marginTop: 2 }}>{DIMS_DESC[i]}</div>
-                      </td>
-                      <td style={{ padding: 8, textAlign: "center" }}>
-                        <input type="range" min={1} max={5} value={data.dimensionesProyecto[i]}
-                          onChange={e => {
-                            const n = [...data.dimensionesProyecto]; n[i] = +e.target.value; u("dimensionesProyecto", n);
-                          }} style={{ width: 80 }} />
-                        <span style={{ marginLeft: 8, fontWeight: 700 }}>{data.dimensionesProyecto[i]}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ marginTop: 12, textAlign: "right", fontWeight: 700, fontSize: 16, color: COLORS.navy }}>
-                Promedio: {(data.dimensionesProyecto.reduce((s, v) => s + v, 0) / 16).toFixed(1)} / 5.0
-              </div>
+            <div style={sectionTitleStyle}>Portafolio de Proyectos de I+D+i</div>
+            <div style={{ background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: COLORS.navy }}>
+              📌 Ingresa la calificación que arrojó la <strong>herramienta de priorización de proyectos de PLYNN</strong> para cada proyecto. El proyecto con mayor calificación avanza a la siguiente fase.
             </div>
-
-            <div style={sectionTitleStyle}>Proyectos y Calificaciones</div>
             {data.proyectos.map((p, i) => (
-              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center", padding: "10px 12px", background: COLORS.cream, borderRadius: 8 }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                 <input style={{ ...inputStyle, flex: 1 }} value={p.nombre}
                   onChange={e => { const n = [...data.proyectos]; n[i] = { ...n[i], nombre: e.target.value }; u("proyectos", n); }}
-                  placeholder="Nombre del proyecto" />
-                <input style={{ ...inputStyle, width: 100, textAlign: "center" }} value={p.calificacion}
-                  onChange={e => { const n = [...data.proyectos]; n[i] = { ...n[i], calificacion: e.target.value }; u("proyectos", n); }}
-                  placeholder="Nota" />
+                  placeholder="Nombre del proyecto de innovación" />
+                <div style={{ flexShrink: 0, textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 2, fontWeight: 600 }}>Calificación</div>
+                  <input style={{ ...inputStyle, width: 90, textAlign: "center", fontWeight: 700, fontSize: 16 }} value={p.calificacion}
+                    onChange={e => { const n = [...data.proyectos]; n[i] = { ...n[i], calificacion: e.target.value }; u("proyectos", n); }}
+                    placeholder="Nota" />
+                </div>
                 {data.proyectos.length > 1 && (
                   <button onClick={() => u("proyectos", data.proyectos.filter((_, j) => j !== i))}
-                    style={{ ...btnStyle(COLORS.red), padding: "4px 8px" }}>✕</button>
+                    style={{ ...btnStyle(COLORS.red), padding: "4px 8px", flexShrink: 0 }}>✕</button>
                 )}
               </div>
             ))}
@@ -1514,36 +1505,11 @@ function RenderActivity({ activityId, data, setData }) {
       );
     }
 
-    case "a25":
-      return (
-        <div>
-          <div style={sectionTitleStyle}>Stage Gate Actualizado</div>
-          <StageGateVisual />
-          <div style={tipStyle}>Actualiza el Stage Gate con las ideas, proyectos y PMV que tienes en cada fase. El comité decide qué avanza, qué se revisa y qué se para.</div>
-          <div style={cardStyle}>
-            <textarea style={{ ...textareaStyle, minHeight: 120 }}
-              value={data.stageGateNotes || ""}
-              onChange={e => u("stageGateNotes", e.target.value)}
-              placeholder="Describe qué ideas/proyectos tienes en cada fase y las decisiones del comité..." />
-          </div>
-        </div>
-      );
-
+        // CORRECCIONES #10 (eliminada actividad Stage Gate), #11, #12, #13 (PMV simplificado)
     case "a26":
       return (
         <div>
-          <InfoBox title="📖 Para tener en cuenta sobre el PMV">
-            <p style={{ marginTop: 8 }}>En esta fase vamos a realizar el PMV del proyecto que formularon. Para ello debes:</p>
-            <ol style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 4 }}>Definir cuál es el problema, necesidad u oportunidad que soluciona la idea.</li>
-              <li style={{ marginBottom: 4 }}>Describir el mercado.</li>
-              <li style={{ marginBottom: 4 }}>Definir el PMV en cuanto a sus funcionalidades, características, empaque, etc., de manera que lo puedas crear con materiales que tengas a la mano: puede ser con cartulina, cartón, lego, plastilina, papel, video, IA, un Power Point, un mockup si es un producto tecnológico, etc.</li>
-              <li style={{ marginBottom: 4 }}>Realizar una referenciación para conocer si esta idea ya existe y puedes tomar consideraciones para mejorar la tuya (estado del arte/Vigilancia Tecnológica usando el asistente PYLAR para vigilancia tecnológica).</li>
-              <li style={{ marginBottom: 4 }}>Recordar que el líder de innovación es quien va a dirigir este trabajo de equipo.</li>
-              <li style={{ marginBottom: 4 }}>Pegar fotos o evidencias del PMV aquí en esta plantilla, pero también debes llevarlo el día de la presentación del pitch.</li>
-              <li style={{ marginBottom: 4 }}>Medir el PMV con tus adopter (empleados, clientes, etc.).</li>
-            </ol>
-          </InfoBox>
+          {/* CORRECCIÓN #13: Quitada la info box con la lista larga */}
           <div style={tipStyle}>Define el PMV con sus funcionalidades mínimas para dar solución al problema, necesidad u oportunidad del mercado.</div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Construir el PMV</div>
@@ -1555,14 +1521,30 @@ function RenderActivity({ activityId, data, setData }) {
             <textarea style={textareaStyle} value={data.pmv.idea}
               onChange={e => uNested("pmv", "idea", e.target.value)}
               placeholder="Describe la idea que elegiste..." />
+
+            {/* CORRECCIÓN #11: Mercado con ejemplos */}
             <label style={labelStyle}>Descripción del mercado</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              Ejemplos: "Empresas medianas del sector manufacturero en Colombia", "Jóvenes universitarios entre 18 y 25 años en ciudades intermedias", "Restaurantes de comida rápida con más de 5 empleados".
+            </div>
             <textarea style={textareaStyle} value={data.pmv.mercado}
               onChange={e => uNested("pmv", "mercado", e.target.value)}
-              placeholder="Describe el mercado..." />
+              placeholder="Describe el mercado al que va dirigida tu solución..." />
+
+            {/* CORRECCIÓN #12: Funcionalidades mínimas con ejemplos */}
             <label style={labelStyle}>Funcionalidades mínimas del PMV</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic", lineHeight: 1.5 }}>
+              El PMV es la versión más básica de tu solución que te permite validar la idea con el menor esfuerzo. Ejemplos de PMV según tipo de solución:<br />
+              • <strong>Producto físico:</strong> Maqueta en cartón, plastilina, lego o materiales de bajo costo.<br />
+              • <strong>App o software:</strong> Mockup en papel, PowerPoint interactivo o prototipo en Figma.<br />
+              • <strong>Servicio:</strong> Simulación del servicio con un cliente real, guion de atención, video demostrativo.<br />
+              • <strong>Proceso:</strong> Diagrama del proceso mejorado, prueba piloto con un equipo pequeño.<br />
+              • <strong>Contenido/formación:</strong> Un módulo de muestra, infografía o sesión piloto.
+            </div>
             <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.pmv.funcionalidades}
               onChange={e => uNested("pmv", "funcionalidades", e.target.value)}
-              placeholder="¿Qué debe tener el PMV? Funcionalidades, características, empaque..." />
+              placeholder="¿Qué debe tener el PMV? Enumera sus características y funcionalidades mínimas..." />
+
             <label style={labelStyle}>Evidencias / Fotos / Dibujos del PMV (links)</label>
             <textarea style={textareaStyle} value={data.pmv.evidencias}
               onChange={e => uNested("pmv", "evidencias", e.target.value)}
@@ -1571,53 +1553,37 @@ function RenderActivity({ activityId, data, setData }) {
         </div>
       );
 
-    case "a27-28": {
-      const addInd = () => u("indicadoresPMV", [...data.indicadoresPMV, { indicador: "", resultado: "" }]);
+    // CORRECCIONES #14 y #15: Validación PMV — link en lugar de tabla, quitar tabla de indicadores
+    case "a27-28":
       return (
         <div>
           <InfoBox title="📖 Instrucciones de validación del PMV">
-            <p style={{ marginTop: 8 }}>Escribe los indicadores que definiste para validar el PMV y cómo los vas a medir.</p>
-            <p>Pega las evidencias de cómo validaste el PMV. Recuerda que pudo ser por un link con una encuesta, capturas de pantallas, un video, unos mockups que le enseñaste a algunas personas, etc.</p>
-            <p>Luego de validar, escribe las <strong>conclusiones de la validación del PMV</strong> y elige la decisión del comité: <strong>Avanzar</strong>, <strong>Revisar</strong> o <strong>Parar</strong>.</p>
+            <p style={{ marginTop: 8 }}>La validación del PMV consiste en probarlo con usuarios reales (empleados, clientes, etc.) y recoger sus opiniones. Puedes usar una encuesta, entrevistas, video, mockup presentado a personas, etc.</p>
+            <p>Pega el link de tu encuesta o instrumento de validación para que la herramienta lleve directamente a los resultados.</p>
           </InfoBox>
+
+          {/* CORRECCIÓN #14: Link de validación en lugar de tabla */}
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Validación del PMV</div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-              <thead>
-                <tr style={{ background: COLORS.navy, color: "#fff" }}>
-                  <th style={{ padding: 8, textAlign: "left" }}>Indicador de Validación</th>
-                  <th style={{ padding: 8, textAlign: "left" }}>Resultado</th>
-                  <th style={{ width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.indicadoresPMV.map((ind, i) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${COLORS.lightGray}` }}>
-                    <td style={{ padding: 6 }}>
-                      <input style={inputStyle} value={ind.indicador}
-                        onChange={e => {
-                          const n = [...data.indicadoresPMV]; n[i] = { ...n[i], indicador: e.target.value }; u("indicadoresPMV", n);
-                        }} placeholder="Indicador" />
-                    </td>
-                    <td style={{ padding: 6 }}>
-                      <input style={inputStyle} value={ind.resultado}
-                        onChange={e => {
-                          const n = [...data.indicadoresPMV]; n[i] = { ...n[i], resultado: e.target.value }; u("indicadoresPMV", n);
-                        }} placeholder="Resultado" />
-                    </td>
-                    <td style={{ padding: 6 }}>
-                      {data.indicadoresPMV.length > 1 && (
-                        <button onClick={() => u("indicadoresPMV", data.indicadoresPMV.filter((_, j) => j !== i))}
-                          style={{ ...btnStyle(COLORS.red), padding: "4px 8px" }}>✕</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <button onClick={addInd} style={{ ...btnStyle(), marginTop: 8 }}>+ Agregar indicador</button>
+            <label style={labelStyle}>Link de validación del PMV</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6 }}>
+              Pega aquí el link a tu encuesta (Google Forms, Typeform, etc.) o al documento con los resultados de la validación.
+            </div>
+            <input style={{ ...inputStyle, fontSize: 15 }}
+              value={data.linkValidacionPMV || ""}
+              onChange={e => u("linkValidacionPMV", e.target.value)}
+              placeholder="https://forms.google.com/..." />
+            {data.linkValidacionPMV && (
+              <div style={{ marginTop: 8 }}>
+                <a href={data.linkValidacionPMV} target="_blank" rel="noopener noreferrer"
+                  style={{ color: COLORS.cyan, fontWeight: 600, fontSize: 13 }}>
+                  🔗 Ver resultados de la validación →
+                </a>
+              </div>
+            )}
           </div>
 
+          {/* CORRECCIÓN #15: Quitada la tabla de indicadores; solo conclusiones y decisión */}
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Conclusiones de la Validación del PMV</div>
             <textarea style={{ ...textareaStyle, minHeight: 120 }}
@@ -1628,54 +1594,101 @@ function RenderActivity({ activityId, data, setData }) {
             <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
               {[["avanzar", COLORS.cyan, "AVANZAR"], ["revisar", COLORS.yellow, "REVISAR"], ["parar", COLORS.red, "PARAR"]].map(([val, col, label]) => (
                 <button key={val} onClick={() => u("decisionPMV", val)}
-                  style={{
-                    ...btnStyle(col), padding: "12px 24px", fontSize: 16, fontWeight: 800,
-                    opacity: data.decisionPMV === val ? 1 : 0.3,
-                    color: val === "revisar" ? "#333" : "#fff",
-                  }}>{label}</button>
+                  style={{ ...btnStyle(col), padding: "12px 24px", fontSize: 16, fontWeight: 800, opacity: data.decisionPMV === val ? 1 : 0.3, color: val === "revisar" ? "#333" : "#fff" }}>
+                  {label}
+                </button>
               ))}
             </div>
           </div>
         </div>
       );
-    }
 
     // ---- TALLER 7: VT ----
+    // CORRECCIÓN #16: Vigilancia Tecnológica con instrucciones completas y ejemplos
     case "a29":
       return (
         <div>
           <InfoBox title="📖 ¿Qué debes hacer en este taller?">
-            <p style={{ marginTop: 8 }}>Debes realizar una <strong>Vigilancia Tecnológica</strong> usando el asistente PYLAR para la vigilancia tecnológica, que te ayude a mejorar el PMV en el que estás trabajando y a encontrar información que le pueda servir al equipo de trabajo y en general a la empresa.</p>
-            <p style={{ fontWeight: 700, color: COLORS.navy, marginTop: 12 }}>Proceso de la Vigilancia Tecnológica:</p>
+            <p style={{ marginTop: 8 }}>Debes realizar una <strong>Vigilancia Tecnológica</strong> usando el asistente PYLAR. El proceso tiene 5 pasos:</p>
             <ol style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 4 }}><strong>Diagnóstico:</strong> Definir tema, objetivo, alcance, FCV y descriptores.</li>
-              <li style={{ marginBottom: 4 }}><strong>Búsqueda:</strong> Usar fuentes de datos (Google Patents, Google Academic, Redalyc, SCIELO, IA, etc.).</li>
-              <li style={{ marginBottom: 4 }}><strong>Análisis e Informe:</strong> Analizar la información encontrada y crear un informe.</li>
-              <li style={{ marginBottom: 4 }}><strong>Boletín:</strong> Crear un boletín informativo con los hallazgos.</li>
-              <li style={{ marginBottom: 4 }}><strong>Difusión:</strong> Difundir el boletín al personal de la empresa.</li>
+              <li><strong>Diagnóstico:</strong> Definir tema, objetivo, alcance, fuentes, FCV y descriptores.</li>
+              <li><strong>Búsqueda</strong> con PYLAR.</li>
+              <li><strong>Análisis e Informe.</strong></li>
+              <li><strong>Boletín</strong> informativo.</li>
+              <li><strong>Difusión</strong> al personal.</li>
             </ol>
           </InfoBox>
+
+          <div style={{
+            background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`,
+            borderRadius: 10, padding: "14px 18px", marginBottom: 16, fontSize: 13, lineHeight: 1.7,
+          }}>
+            <strong style={{ color: COLORS.navy }}>📌 Antes de ir al asistente PYLAR de Vigilancia Tecnológica,</strong> diligencia los siguientes apartados — los necesitarás en el asistente:
+          </div>
+
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Diagnóstico de Vigilancia Tecnológica</div>
-          <div style={tipStyle}>Sigue los pasos del proceso de VT. Puedes usar el asistente PYLAR para vigilancia tecnológica.</div>
-          <label style={labelStyle}>Tema a vigilar</label>
-          <textarea style={textareaStyle} value={data.vt.tema}
-            onChange={e => uNested("vt", "tema", e.target.value)}
-            placeholder="Define el tema a vigilar..." />
-          <label style={labelStyle}>Objetivo de la vigilancia</label>
-          <textarea style={textareaStyle} value={data.vt.objetivo}
-            onChange={e => uNested("vt", "objetivo", e.target.value)} />
-          <label style={labelStyle}>Alcance</label>
-          <textarea style={textareaStyle} value={data.vt.alcance}
-            onChange={e => uNested("vt", "alcance", e.target.value)} />
-          <label style={labelStyle}>Factores Críticos de Vigilancia (FCV)</label>
-          <textarea style={textareaStyle} value={data.vt.fcv}
-            onChange={e => uNested("vt", "fcv", e.target.value)} />
-          <label style={labelStyle}>Descriptores</label>
-          <input style={inputStyle} value={data.vt.descriptores}
-            onChange={e => uNested("vt", "descriptores", e.target.value)}
-            placeholder="Palabras clave para la búsqueda" />
-        </div>
+            <div style={sectionTitleStyle}>Diagnóstico de Vigilancia Tecnológica</div>
+
+            {/* Tema */}
+            <label style={labelStyle}>Tema a vigilar</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              La empresa debe definir un tema a vigilar porque los recursos son escasos y se debe centrar en vigilar aquello que realmente le genere valor.<br />
+              <strong>Ejemplo:</strong> Baterías de plomo ácido con nanotecnología.
+            </div>
+            <textarea style={textareaStyle} value={data.vt.tema}
+              onChange={e => uNested("vt", "tema", e.target.value)}
+              placeholder="Ej: Inteligencia Artificial aplicada al sector salud" />
+
+            {/* Objetivo */}
+            <label style={labelStyle}>Objetivo de la vigilancia</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              Propósito de la VT: anticiparse a cambios, detectar nuevas tecnologías, nuevos mercados, competidores, temas ambientales, patentes, ideas que solucionen retos de la empresa, entre otros.<br />
+              <strong>Ejemplo:</strong> Nuestra empresa está trabajando en el desarrollo de una nueva batería con nanotecnología y necesitamos saber qué investigaciones existen ya y qué productos hay en el mercado.
+            </div>
+            <textarea style={textareaStyle} value={data.vt.objetivo}
+              onChange={e => uNested("vt", "objetivo", e.target.value)}
+              placeholder="Ej: Identificar nuevas tecnologías de IA que podamos aplicar a nuestros procesos de atención al cliente" />
+
+            {/* Alcance */}
+            <label style={labelStyle}>Alcance</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              Hasta dónde se quiere llegar con la vigilancia: generar un informe único, informes mensuales, anuales, etc.<br />
+              <strong>Ejemplo:</strong> Identificar investigaciones sobre baterías de plomo ácido con nanotecnología en los últimos 5 años y generar varios informes durante la duración del proyecto.
+            </div>
+            <textarea style={textareaStyle} value={data.vt.alcance}
+              onChange={e => uNested("vt", "alcance", e.target.value)}
+              placeholder="Ej: Generar un informe inicial sobre el estado del arte y luego informes trimestrales de novedades" />
+
+            {/* Fuentes */}
+            <label style={labelStyle}>Fuentes de búsqueda</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              Existen muchas fuentes: ferias, congresos, seminarios, bases de datos de patentes, publicaciones científicas, artículos, bases pagas o gratuitas, IA.<br />
+              <strong>Ejemplo:</strong> IA, base de datos de artículos científicos, base de patentes, análisis de competencia.
+            </div>
+            <textarea style={textareaStyle} value={data.vt.fuentes || ""}
+              onChange={e => uNested("vt", "fuentes", e.target.value)}
+              placeholder="Ej: Google Académico, Scopus, Google Patents, PYLAR, páginas web de competidores" />
+
+            {/* FCV */}
+            <label style={labelStyle}>Factores Críticos de Vigilancia (FCV)</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              Son palabras clave o frases que definen la necesidad planteada y a partir de las cuales es posible desarrollar las ecuaciones de búsqueda. Según la Norma UNE 166002, los FCV son "las cuestiones externas a la organización cuya evolución es crucial para su competitividad: tecnologías emergentes, competidores actuales y potenciales, desarrollo de los mercados y del entorno." (GTC 186 — Guía Técnica Colombiana de ICONTEC para la vigilancia en la Gestión de la I+D+i).<br />
+              <strong>Ejemplo:</strong> Placa planté de rejillas de baterías de plomo ácido estacionarias, baterías con nanotecnología, innovación en baterías de plomo ácido.
+            </div>
+            <textarea style={textareaStyle} value={data.vt.fcv}
+              onChange={e => uNested("vt", "fcv", e.target.value)}
+              placeholder="Ej: Inteligencia artificial en salud, machine learning diagnóstico médico, IA atención al paciente" />
+
+            {/* Descriptores */}
+            <label style={labelStyle}>Descriptores</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
+              Ayudan a restringir el alcance de la investigación. Ejemplos de descriptores: países, años, idiomas, tipos de documento.<br />
+              <strong>Ejemplo:</strong> Fecha: últimos 5 años · Idioma: inglés y español · Lugar: EE. UU., Japón, China y Corea del Sur.
+            </div>
+            <textarea style={textareaStyle} value={data.vt.descriptores}
+              onChange={e => uNested("vt", "descriptores", e.target.value)}
+              placeholder="Ej: Fecha: últimos 3 años · Idioma: español e inglés · Países: Colombia, México, España" />
+          </div>
         </div>
       );
 
@@ -1683,24 +1696,27 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones de búsqueda">
-            <p style={{ marginTop: 8 }}>Esta búsqueda la realiza el asistente <strong>PYLAR para vigilancia tecnológica</strong>. Puedes pedirle al asistente que te entregue las fuentes que consultó.</p>
-            <p>Recuerda tener en cuenta los <strong>descriptores</strong> definidos en el diagnóstico.</p>
-            <p>Fuentes de datos sugeridas: Google Patents, Google Academic, Redalyc, SCIELO, Google, IA, u otras fuentes relevantes.</p>
-            <p>Pídele al asistente PYLAR que te entregue el informe, lo subes a tu Drive y pegas aquí el link.</p>
+            <p style={{ marginTop: 8 }}>Esta búsqueda la realiza el asistente <strong>PYLAR para vigilancia tecnológica</strong>. Ingresa los datos del diagnóstico anterior en el asistente y pídele que realice la búsqueda, el análisis y el informe.</p>
+            <p>Sube el informe a tu Drive y pega aquí el link.</p>
           </InfoBox>
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Búsqueda e Informe de VT</div>
-          <div style={tipStyle}>Esta búsqueda la puede realizar PYLAR. Puedes pedir al asistente que te entregue las fuentes y el informe.</div>
-          <label style={labelStyle}>Resultados de la búsqueda (links a Drive, fuentes consultadas)</label>
-          <textarea style={{ ...textareaStyle, minHeight: 120 }}
-            value={data.vt.busquedaTexto || ""}
-            onChange={e => uNested("vt", "busquedaTexto", e.target.value)}
-            placeholder="Pega aquí los links a las fuentes, resultados de PYLAR, etc." />
-          <label style={labelStyle}>Link al informe de VT (Drive)</label>
-          <input style={inputStyle} value={data.vt.informe}
-            onChange={e => uNested("vt", "informe", e.target.value)}
-            placeholder="https://drive.google.com/..." />
-        </div>
+            <div style={sectionTitleStyle}>Búsqueda e Informe de VT</div>
+            <label style={labelStyle}>Resultados de la búsqueda (links a Drive, fuentes consultadas)</label>
+            <textarea style={{ ...textareaStyle, minHeight: 120 }}
+              value={data.vt.busquedaTexto || ""}
+              onChange={e => uNested("vt", "busquedaTexto", e.target.value)}
+              placeholder="Pega aquí los links a las fuentes, resultados de PYLAR, etc." />
+            <label style={labelStyle}>Link al informe de VT (Drive)</label>
+            <input style={inputStyle} value={data.vt.informe}
+              onChange={e => uNested("vt", "informe", e.target.value)}
+              placeholder="https://drive.google.com/..." />
+            {data.vt.informe && (
+              <a href={data.vt.informe} target="_blank" rel="noopener noreferrer"
+                style={{ display: "inline-block", marginTop: 6, color: COLORS.cyan, fontWeight: 600, fontSize: 13 }}>
+                🔗 Ver informe →
+              </a>
+            )}
+          </div>
         </div>
       );
 
@@ -1708,44 +1724,49 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones del boletín">
-            <p style={{ marginTop: 8 }}>Pídele al asistente <strong>PYLAR para la vigilancia tecnológica</strong> que te entregue un boletín.</p>
-            <p>Para crear el boletín te recomendamos entrar a <strong>www.canva.com</strong> y en el buscador poner "boletines informativos", selecciona la plantilla que más se acomode a tu necesidad y crea tu boletín de VT.</p>
-            <p>Escribe a qué personal de la empresa le vas a enviar el boletín. Puede ser publicado también para toda la empresa.</p>
+            <p style={{ marginTop: 8 }}>Pídele al asistente <strong>PYLAR</strong> que te entregue un boletín con los hallazgos de la vigilancia. Para diseñarlo, puedes usar <strong>www.canva.com</strong> — busca "boletines informativos" y personaliza una plantilla.</p>
           </InfoBox>
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Boletín y Difusión</div>
-          <label style={labelStyle}>Link al boletín de VT</label>
-          <input style={inputStyle} value={data.vt.boletin}
-            onChange={e => uNested("vt", "boletin", e.target.value)}
-            placeholder="Link al boletín (Canva, Drive, etc.)" />
-          <label style={labelStyle}>¿A quién se difunde el boletín?</label>
-          <textarea style={textareaStyle} value={data.vt.difusion}
-            onChange={e => uNested("vt", "difusion", e.target.value)}
-            placeholder="Escribe a qué personal de la empresa le vas a enviar el boletín..." />
-        </div>
+            <div style={sectionTitleStyle}>Boletín y Difusión</div>
+            <label style={labelStyle}>Link al boletín de VT</label>
+            <input style={inputStyle} value={data.vt.boletin}
+              onChange={e => uNested("vt", "boletin", e.target.value)}
+              placeholder="Link al boletín (Canva, Drive, etc.)" />
+            <label style={labelStyle}>¿A quién se difunde el boletín?</label>
+            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic", lineHeight: 1.5 }}>
+              Sé específico sobre a quién envías el boletín y por qué canal.<br/>
+              <strong>Ejemplos:</strong><br/>
+              • "A todo el personal de la empresa por correo electrónico corporativo."<br/>
+              • "Al equipo de I+D+i (5 personas) y a la gerencia general, por WhatsApp y correo."<br/>
+              • "Al Comité de Innovación en la próxima reunión mensual (presentación en pantalla)."<br/>
+              • "A los ingenieros de producción y al jefe de calidad, vía correo electrónico."<br/>
+              • "Publicado en el tablón de anuncios físico y enviado al grupo de WhatsApp de líderes."
+            </div>
+            <textarea style={textareaStyle} value={data.vt.difusion}
+              onChange={e => uNested("vt", "difusion", e.target.value)}
+              placeholder="Ej: Al equipo de I+D+i y a la gerencia, por correo electrónico corporativo..." />
+          </div>
         </div>
       );
 
-    // ---- TALLER 8: DIFUSIÓN, CULTURA, INDICADORES ----
+    // ---- TALLER 8 ----
     case "a34-35":
       return (
         <div>
           <InfoBox title="📖 ¿Qué debes hacer?">
-            <p style={{ marginTop: 8 }}>Usa el asistente <strong>PYLAR plan de difusión y explotación de los resultados de un proyecto de I+D+i</strong> que te entregue el plan.</p>
-            <p>Pega aquí el link del Drive que lleve al plan de difusión y explotación de resultados que te entregó el asistente PYLAR.</p>
+            <p style={{ marginTop: 8 }}>Usa el asistente <strong>PYLAR de plan de difusión y explotación</strong> para crear el plan. Sube el resultado a Drive y pega aquí el link.</p>
           </InfoBox>
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Plan de Difusión y Explotación de Resultados</div>
-          <div style={tipStyle}>Usa el asistente PYLAR para crear el plan de difusión y explotación de resultados de I+D+i.</div>
-          <label style={labelStyle}>Link al plan de difusión (Drive)</label>
-          <input style={inputStyle} value={data.planDifusion}
-            onChange={e => u("planDifusion", e.target.value)}
-            placeholder="https://drive.google.com/..." />
-          <label style={labelStyle}>Link al plan de explotación (Drive)</label>
-          <input style={inputStyle} value={data.planExplotacion}
-            onChange={e => u("planExplotacion", e.target.value)}
-            placeholder="https://drive.google.com/..." />
-        </div>
+            <div style={sectionTitleStyle}>Plan de Difusión y Explotación de Resultados</div>
+            <label style={labelStyle}>Link al plan de difusión (Drive)</label>
+            <input style={inputStyle} value={data.planDifusion}
+              onChange={e => u("planDifusion", e.target.value)}
+              placeholder="https://drive.google.com/..." />
+            <label style={labelStyle}>Link al plan de explotación (Drive)</label>
+            <input style={inputStyle} value={data.planExplotacion}
+              onChange={e => u("planExplotacion", e.target.value)}
+              placeholder="https://drive.google.com/..." />
+          </div>
         </div>
       );
 
@@ -1753,22 +1774,20 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones de cultura de innovación">
-            <p style={{ marginTop: 8 }}>Usa la herramienta de PLYNN para crear el <strong>programa de cultura de innovación</strong>.</p>
-            <p>Pega el link del Drive donde tienes el programa creado con la herramienta de PLYNN de cultura de innovación.</p>
+            <p style={{ marginTop: 8 }}>Usa la herramienta de PLYNN para crear el <strong>programa de cultura de innovación</strong>. Pega el link del Drive donde tienes el programa.</p>
           </InfoBox>
           <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Programa de Cultura de Innovación</div>
-          <div style={tipStyle}>Usa la herramienta de PLYNN para crear el programa de cultura de innovación.</div>
-          <label style={labelStyle}>Link al programa de cultura de innovación (Drive)</label>
-          <input style={inputStyle} value={data.programaCultura}
-            onChange={e => u("programaCultura", e.target.value)}
-            placeholder="https://drive.google.com/..." />
-          <label style={labelStyle}>Descripción de las acciones de cultura</label>
-          <textarea style={{ ...textareaStyle, minHeight: 100 }}
-            value={data.descripcionCultura || ""}
-            onChange={e => u("descripcionCultura", e.target.value)}
-            placeholder="Describe las acciones de cultura de innovación que van a implementar..." />
-        </div>
+            <div style={sectionTitleStyle}>Programa de Cultura de Innovación</div>
+            <label style={labelStyle}>Link al programa de cultura de innovación (Drive)</label>
+            <input style={inputStyle} value={data.programaCultura}
+              onChange={e => u("programaCultura", e.target.value)}
+              placeholder="https://drive.google.com/..." />
+            <label style={labelStyle}>Descripción de las acciones de cultura</label>
+            <textarea style={{ ...textareaStyle, minHeight: 100 }}
+              value={data.descripcionCultura || ""}
+              onChange={e => u("descripcionCultura", e.target.value)}
+              placeholder="Describe las acciones de cultura de innovación que van a implementar..." />
+          </div>
         </div>
       );
 
@@ -1777,9 +1796,8 @@ function RenderActivity({ activityId, data, setData }) {
       return (
         <div>
           <InfoBox title="📖 Instrucciones de indicadores de innovación">
-            <p style={{ marginTop: 8 }}>Escribe por lo menos un indicador de innovación. Cada indicador debe tener todos sus atributos: nombre, objetivo, fórmula, fuente de datos, meta, periodicidad de evaluación y fecha de evaluación.</p>
+            <p style={{ marginTop: 8 }}>Escribe por lo menos un indicador de innovación con todos sus atributos: nombre, objetivo, fórmula, fuente de datos, meta, periodicidad y fecha de evaluación.</p>
           </InfoBox>
-          <div style={tipStyle}>Escribe por lo menos un indicador de innovación con todos sus atributos.</div>
           <div style={{ overflowX: "auto" }}>
             {data.indicadores.map((ind, i) => (
               <div key={i} style={{ ...cardStyle, position: "relative" }}>
@@ -1791,37 +1809,21 @@ function RenderActivity({ activityId, data, setData }) {
                   )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-                  <div>
-                    <label style={{ ...labelStyle, marginTop: 0 }}>Nombre</label>
-                    <input style={inputStyle} value={ind.nombre}
-                      onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], nombre: e.target.value }; u("indicadores", n); }} />
-                  </div>
-                  <div>
-                    <label style={{ ...labelStyle, marginTop: 0 }}>Objetivo</label>
-                    <input style={inputStyle} value={ind.objetivo}
-                      onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], objetivo: e.target.value }; u("indicadores", n); }} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Fórmula</label>
-                    <input style={inputStyle} value={ind.formula}
-                      onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], formula: e.target.value }; u("indicadores", n); }} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Fuente de datos</label>
-                    <input style={inputStyle} value={ind.fuente}
-                      onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], fuente: e.target.value }; u("indicadores", n); }} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Meta</label>
-                    <input style={inputStyle} value={ind.meta}
-                      onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], meta: e.target.value }; u("indicadores", n); }} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Periodicidad</label>
-                    <input style={inputStyle} value={ind.periodicidad}
-                      onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], periodicidad: e.target.value }; u("indicadores", n); }}
-                      placeholder="Mensual, Trimestral..." />
-                  </div>
+                  {[
+                    ["nombre","Nombre","Ej: Número de proyectos de innovación activos"],
+                    ["objetivo","Objetivo","Ej: Medir la cantidad de proyectos de innovación en ejecución en la empresa durante el periodo"],
+                    ["formula","Fórmula","Ej: N° proyectos activos / N° proyectos planificados × 100"],
+                    ["fuente","Fuente de datos","Ej: Portafolio de proyectos del SGi / Trello / Sistema de gestión interno"],
+                    ["meta","Meta","Ej: 90% de proyectos planificados en ejecución al cierre del año"],
+                    ["periodicidad","Periodicidad","Ej: Trimestral — se revisa en cada reunión del Comité de Innovación"]
+                  ].map(([k, lbl, ph]) => (
+                    <div key={k}>
+                      <label style={{ ...labelStyle, marginTop: 0 }}>{lbl}</label>
+                      <input style={inputStyle} value={ind[k]}
+                        onChange={e => { const n = [...data.indicadores]; n[i] = { ...n[i], [k]: e.target.value }; u("indicadores", n); }}
+                        placeholder={ph} />
+                    </div>
+                  ))}
                   <div>
                     <label style={labelStyle}>Fecha de evaluación</label>
                     <input type="date" style={inputStyle} value={ind.fecha}
@@ -1842,83 +1844,66 @@ function RenderActivity({ activityId, data, setData }) {
 }
 
 // ============================================================
-// EXPORT TO GOOGLE SHEETS
+// EXPORT / DOWNLOAD — CORRECCIÓN #17: Botón de descarga completa
 // ============================================================
 function generateSheetsData(data) {
   const rows = [];
   rows.push(["PLANTILLA INNOVACCIÓN 2026 — PLYNN"]);
   rows.push(["Exportado el", new Date().toLocaleString("es-CO")]);
+  rows.push(["Empresa", data.empresa.nombre]);
   rows.push([]);
-
-  // Empresa
   rows.push(["=== DATOS DE LA EMPRESA ==="]);
   rows.push(["Nombre", data.empresa.nombre]);
   rows.push(["Sector", data.empresa.sector]);
   rows.push(["Empleados", data.empresa.empleados]);
   rows.push(["Productos", data.empresa.productos]);
   rows.push([]);
-
-  // Comité
   rows.push(["=== COMITÉ DE INNOVACIÓN ==="]);
   rows.push(["Departamento", "Nombre"]);
   data.comite.forEach(m => rows.push([m.departamento, m.nombre]));
   rows.push(["Líder de Innovación", data.liderInnovacion]);
   rows.push([]);
-
-  // Canvas
-  rows.push(["=== BUSINESS MODEL CANVAS ==="]);
-  Object.entries(data.canvas).forEach(([k, v]) => rows.push([k, v]));
-  rows.push([]);
-
-  // Focos
   rows.push(["=== FOCOS DE INNOVACIÓN ==="]);
-  rows.push(["Tipo", "Porcentaje", "Descripción"]);
-  data.focos.forEach(f => rows.push([f.tipo, f.porcentaje + "%", f.descripcion]));
+  rows.push(["Tipo", "Porcentaje"]);
+  data.focos.forEach(f => rows.push([f.tipo, f.porcentaje + "%"]));
   rows.push([]);
-
-  // Estrategia
   rows.push(["=== ESTRATEGIA ==="]);
   rows.push(["Objetivos Estratégicos", data.objetivosEstrategicos]);
   rows.push(["Objetivos de Innovación", data.objetivosInnovacion || ""]);
   rows.push(["Estrategia de Innovación", data.estrategiaInnovacion]);
-  rows.push(["Recursos", data.recursosEstrategia]);
   rows.push([]);
-
-  // Retos
   rows.push(["=== RETOS ==="]);
   rows.push(["Tipo", "Categoría", "Descripción"]);
   data.retosInternos.forEach(r => rows.push([r.tipo, "Interno", r.text]));
   data.retosCadena.forEach(r => rows.push([r.tipo, "Cadena", r.text]));
   data.retosSector.forEach(r => rows.push([r.tipo, "Sector", r.text]));
-  rows.push([]);
-  rows.push(["Retos Evaluados"]);
-  rows.push(["Nombre", "Tipo", "Estratégico", "Factible"]);
-  data.retosEvaluados.forEach(r => rows.push([r.nombre, r.tipo, r.estrategico, r.factible]));
   rows.push(["Reto cerrado", data.retoCerrado]);
   rows.push(["Reto abierto", data.retoAbierto]);
   rows.push([]);
-
-  // Ideas
   rows.push(["=== IDEAS ==="]);
   data.ideas.forEach(i => rows.push([i.tipo, i.text]));
   rows.push(["Idea que continúa", data.ideaContinua]);
   rows.push([]);
-
-  // PMV
   rows.push(["=== PMV ==="]);
   rows.push(["Reto", data.pmv.reto]);
   rows.push(["Idea", data.pmv.idea]);
   rows.push(["Mercado", data.pmv.mercado]);
   rows.push(["Funcionalidades", data.pmv.funcionalidades]);
+  rows.push(["Link validación", data.linkValidacionPMV || ""]);
   rows.push(["Conclusiones", data.conclusionesPMV]);
   rows.push(["Decisión", data.decisionPMV]);
   rows.push([]);
-
-  // Indicadores
+  rows.push(["=== VIGILANCIA TECNOLÓGICA ==="]);
+  rows.push(["Tema", data.vt.tema]);
+  rows.push(["Objetivo", data.vt.objetivo]);
+  rows.push(["Alcance", data.vt.alcance]);
+  rows.push(["Fuentes", data.vt.fuentes || ""]);
+  rows.push(["FCV", data.vt.fcv]);
+  rows.push(["Descriptores", data.vt.descriptores]);
+  rows.push([]);
   rows.push(["=== INDICADORES ==="]);
   rows.push(["Nombre", "Objetivo", "Fórmula", "Fuente", "Meta", "Periodicidad"]);
   data.indicadores.forEach(i => rows.push([i.nombre, i.objetivo, i.formula, i.fuente, i.meta, i.periodicidad]));
-
   return rows;
 }
 
@@ -1934,6 +1919,127 @@ function downloadCSV(data) {
   URL.revokeObjectURL(url);
 }
 
+// CORRECCIÓN #17: Descarga completa en HTML imprimible
+function downloadFullReport(data) {
+  const logoHtml = data.empresa.logo
+    ? `<img src="${data.empresa.logo}" style="max-height:80px;max-width:180px;object-fit:contain;margin-bottom:8px;" /><br/>`
+    : "";
+
+  const section = (title, content) =>
+    `<div style="margin-bottom:24px;"><h2 style="color:#1A3365;border-bottom:3px solid #0FBAE3;padding-bottom:6px;font-family:Arial,sans-serif;">${title}</h2>${content}</div>`;
+
+  const row = (label, value) =>
+    value ? `<p style="margin:4px 0;font-size:14px;"><strong>${label}:</strong> ${value}</p>` : "";
+
+  const tableRows = (items, cols) =>
+    `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
+      <thead><tr style="background:#1A2E4A;color:#fff;">${cols.map(c=>`<th style="padding:8px;text-align:left;">${c}</th>`).join("")}</tr></thead>
+      <tbody>${items.map(item=>`<tr style="border-bottom:1px solid #eee;">${Object.values(item).map(v=>`<td style="padding:6px 8px;">${v||""}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Plantilla INNOVACCIÓN — ${data.empresa.nombre || "Mi Empresa"}</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 32px; color: #222; }
+    h1 { color: #1A3365; } h2 { color: #1A3365; }
+    @media print { body { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <div style="text-align:center;margin-bottom:32px;padding:24px;background:#1A2E4A;border-radius:12px;color:#fff;">
+    ${logoHtml}
+    <div style="font-size:13px;opacity:0.8;margin-bottom:4px;">Cámara de Comercio Aburrá Sur · PLYNN</div>
+    <h1 style="color:#0FBCCC;margin:0;font-size:28px;">PLANTILLA INNOVACCIÓN</h1>
+    <div style="font-size:16px;margin-top:8px;">${data.empresa.nombre || ""}</div>
+    <div style="font-size:12px;opacity:0.7;margin-top:4px;">Generado el ${new Date().toLocaleDateString("es-CO")}</div>
+  </div>
+
+  ${section("Datos de la Empresa", `
+    ${row("Nombre", data.empresa.nombre)}
+    ${row("Sector", data.empresa.sector)}
+    ${row("N° de empleados", data.empresa.empleados)}
+    ${row("Productos/Servicios", data.empresa.productos)}
+  `)}
+
+  ${section("Comité de Innovación", `
+    ${tableRows(data.comite, ["Departamento","Nombre"])}
+    ${row("Líder de Innovación", data.liderInnovacion)}
+    ${row("Fecha del acta", data.acta.fecha)}
+    ${row("Periodicidad del comité", data.acta.periodicidad)}
+    <h3 style="color:#1A3365;margin-top:16px;">Asistentes</h3>
+    ${tableRows(data.acta.asistentes, ["Nombre","Cargo"])}
+  `)}
+
+  ${section("Focos de Innovación", `
+    ${tableRows(data.focos.map(f=>({tipo:f.tipo, pct:(f.porcentaje||0)+"%"})), ["Tipo de innovación","Porcentaje"])}
+  `)}
+
+  ${section("Estrategia de Innovación", `
+    ${row("Objetivos estratégicos", data.objetivosEstrategicos)}
+    ${row("Objetivos de innovación", data.objetivosInnovacion)}
+    ${row("Estrategia de innovación", data.estrategiaInnovacion)}
+    ${row("Recursos destinados", data.recursosEstrategia)}
+  `)}
+
+  ${section("Retos de Innovación", `
+    <h3 style="color:#1A3365;">Retos Internos</h3>
+    ${data.retosInternos.map(r=>`<span style="background:${r.tipo==="problema"?"#FF6B6B":r.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${r.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${r.text}</span>`).join("")||"—"}
+    <h3 style="color:#1A3365;margin-top:12px;">Retos de la Cadena</h3>
+    ${data.retosCadena.map(r=>`<span style="background:${r.tipo==="problema"?"#FF6B6B":r.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${r.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${r.text}</span>`).join("")||"—"}
+    <h3 style="color:#1A3365;margin-top:12px;">Retos del Sector</h3>
+    ${data.retosSector.map(r=>`<span style="background:${r.tipo==="problema"?"#FF6B6B":r.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${r.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${r.text}</span>`).join("")||"—"}
+    ${row("Reto de innovación cerrada", data.retoCerrado)}
+    ${row("Reto de innovación abierta", data.retoAbierto)}
+  `)}
+
+  ${section("Ideas de Innovación", `
+    ${data.ideas.map(i=>`<span style="background:${i.tipo==="problema"?"#FF6B6B":i.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${i.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${i.text}</span>`).join("")||"—"}
+    ${row("Idea que continúa", data.ideaContinua)}
+  `)}
+
+  ${section("PMV — Producto Mínimo Viable", `
+    ${row("Reto", data.pmv.reto)}
+    ${row("Idea elegida", data.pmv.idea)}
+    ${row("Mercado", data.pmv.mercado)}
+    ${row("Funcionalidades mínimas", data.pmv.funcionalidades)}
+    ${row("Link de validación", data.linkValidacionPMV)}
+    ${row("Conclusiones de la validación", data.conclusionesPMV)}
+    ${row("Decisión del comité", data.decisionPMV?.toUpperCase())}
+  `)}
+
+  ${section("Vigilancia Tecnológica", `
+    ${row("Tema a vigilar", data.vt.tema)}
+    ${row("Objetivo", data.vt.objetivo)}
+    ${row("Alcance", data.vt.alcance)}
+    ${row("Fuentes", data.vt.fuentes)}
+    ${row("FCV", data.vt.fcv)}
+    ${row("Descriptores", data.vt.descriptores)}
+    ${row("Link al informe", data.vt.informe)}
+    ${row("Link al boletín", data.vt.boletin)}
+  `)}
+
+  ${section("Indicadores de Innovación", `
+    ${tableRows(data.indicadores, ["Nombre","Objetivo","Fórmula","Fuente","Meta","Periodicidad"])}
+  `)}
+
+  <div style="text-align:center;margin-top:40px;padding:16px;background:#F7F8FC;border-radius:8px;font-size:12px;color:#6B7280;">
+    Cámara de Comercio Aburrá Sur · PLYNN · plynnpymes.com
+  </div>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `INNOVACCION_${data.empresa.nombre || "empresa"}_${new Date().toISOString().slice(0, 10)}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ============================================================
 // PROGRESS TRACKER
 // ============================================================
@@ -1945,7 +2051,7 @@ function calcProgress(data) {
   check(data.liderInnovacion);
   check(data.acta.fecha);
   Object.values(data.canvas).forEach(v => check(v));
-  data.focos.forEach(f => check(f.descripcion));
+  data.focos.forEach(f => check(f.porcentaje));
   check(data.objetivosEstrategicos); check(data.estrategiaInnovacion);
   check(data.retoCerrado); check(data.retoAbierto);
   check(data.ideaContinua);
@@ -1956,7 +2062,7 @@ function calcProgress(data) {
 }
 
 // ============================================================
-// MAIN APP (receives user from auth wrapper)
+// MAIN APP
 // ============================================================
 function InnovaccionApp({ user, onLogout }) {
   const [data, setData] = useState(DEFAULT_DATA);
@@ -1968,11 +2074,9 @@ function InnovaccionApp({ user, onLogout }) {
   const [showingIntro, setShowingIntro] = useState(true);
   const saveTimeout = useRef(null);
 
-  // Load data from API on mount
   useEffect(() => {
     const load = async () => {
       try {
-        // Try API first
         const apiResult = await apiCall("load", { empresa: user });
         if (apiResult.success && apiResult.datos && Object.keys(apiResult.datos).length > 0) {
           const parsed = apiResult.datos;
@@ -1980,7 +2084,6 @@ function InnovaccionApp({ user, onLogout }) {
           if (parsed.currentTaller !== undefined) setCurrentTaller(parsed.currentTaller);
           if (parsed.currentActivity !== undefined) setCurrentActivity(parsed.currentActivity);
         } else {
-          // Fallback to localStorage
           const raw = localStorage.getItem(STORAGE_KEY + "_" + user);
           if (raw) {
             const parsed = JSON.parse(raw);
@@ -1990,19 +2093,14 @@ function InnovaccionApp({ user, onLogout }) {
           }
         }
       } catch (e) {
-        console.log("Load error, trying localStorage", e);
         const raw = localStorage.getItem(STORAGE_KEY + "_" + user);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          setData(prev => ({ ...prev, ...parsed }));
-        }
+        if (raw) { const parsed = JSON.parse(raw); setData(prev => ({ ...prev, ...parsed })); }
       }
       setLoaded(true);
     };
     load();
   }, [user]);
 
-  // Auto-save with debounce — saves to both localStorage and API
   useEffect(() => {
     if (!loaded) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -2010,13 +2108,9 @@ function InnovaccionApp({ user, onLogout }) {
       setSaving(true);
       try {
         const toSave = { ...data, currentTaller, currentActivity, lastSaved: new Date().toISOString() };
-        // Save locally first (instant)
         localStorage.setItem(STORAGE_KEY + "_" + user, JSON.stringify(toSave));
-        // Then save to API (cloud)
         await apiCall("save", { empresa: user, datos: toSave });
-      } catch (e) {
-        console.error("Save failed:", e);
-      }
+      } catch (e) { console.error("Save failed:", e); }
       setTimeout(() => setSaving(false), 800);
     }, 2000);
   }, [data, currentTaller, currentActivity, loaded, user]);
@@ -2026,57 +2120,29 @@ function InnovaccionApp({ user, onLogout }) {
   const activity = taller?.actividades[currentActivity];
 
   const goToActivity = (ti, ai) => {
-    if (ti !== currentTaller) {
-      setCurrentTaller(ti);
-      setCurrentActivity(ai);
-      setShowingIntro(true);
-    } else {
-      setCurrentActivity(ai);
-      setShowingIntro(false);
-    }
+    if (ti !== currentTaller) { setCurrentTaller(ti); setCurrentActivity(ai); setShowingIntro(true); }
+    else { setCurrentActivity(ai); setShowingIntro(false); }
     setSidebarOpen(false);
   };
 
-  const startTaller = () => {
-    setShowingIntro(false);
-    setCurrentActivity(0);
-  };
+  const startTaller = () => { setShowingIntro(false); setCurrentActivity(0); };
 
   const nextActivity = () => {
-    if (showingIntro) {
-      setShowingIntro(false);
-      setCurrentActivity(0);
-    } else if (currentActivity < taller.actividades.length - 1) {
-      setCurrentActivity(currentActivity + 1);
-    } else if (currentTaller < TALLERES.length - 1) {
-      setCurrentTaller(currentTaller + 1);
-      setCurrentActivity(0);
-      setShowingIntro(true);
-    }
+    if (showingIntro) { setShowingIntro(false); setCurrentActivity(0); }
+    else if (currentActivity < taller.actividades.length - 1) { setCurrentActivity(currentActivity + 1); }
+    else if (currentTaller < TALLERES.length - 1) { setCurrentTaller(currentTaller + 1); setCurrentActivity(0); setShowingIntro(true); }
   };
 
   const prevActivity = () => {
-    if (showingIntro && currentTaller > 0) {
-      const prevT = currentTaller - 1;
-      setCurrentTaller(prevT);
-      setCurrentActivity(TALLERES[prevT].actividades.length - 1);
-      setShowingIntro(false);
-    } else if (showingIntro) {
-      return;
-    } else if (currentActivity > 0) {
-      setCurrentActivity(currentActivity - 1);
-    } else {
-      setShowingIntro(true);
-    }
+    if (showingIntro && currentTaller > 0) { const prevT = currentTaller - 1; setCurrentTaller(prevT); setCurrentActivity(TALLERES[prevT].actividades.length - 1); setShowingIntro(false); }
+    else if (showingIntro) { return; }
+    else if (currentActivity > 0) { setCurrentActivity(currentActivity - 1); }
+    else { setShowingIntro(true); }
   };
 
   if (!loaded) {
     return (
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        height: "100vh", fontFamily: "'Montserrat', sans-serif",
-        background: COLORS.navy, color: "#fff",
-      }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'Montserrat', sans-serif", background: COLORS.navy, color: "#fff" }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🚀</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>Cargando INNOVACCIÓN...</div>
@@ -2086,89 +2152,58 @@ function InnovaccionApp({ user, onLogout }) {
   }
 
   return (
-    <div style={{
-      fontFamily: "'Montserrat', sans-serif",
-      display: "flex", height: "100vh", overflow: "hidden",
-      background: COLORS.cream,
-    }}>
-      {/* Sidebar overlay for mobile */}
-      {sidebarOpen && (
-        <div onClick={() => setSidebarOpen(false)}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
-            zIndex: 90,
-          }} />
-      )}
+    <div style={{ fontFamily: "'Montserrat', sans-serif", display: "flex", height: "100vh", overflow: "hidden", background: COLORS.cream }}>
+      {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 90 }} />}
 
       {/* Sidebar */}
       <aside style={{
         width: 280, background: COLORS.navy, color: "#fff",
         display: "flex", flexDirection: "column", flexShrink: 0,
-        position: sidebarOpen ? "fixed" : "relative",
-        zIndex: 100, height: "100vh",
-        transform: sidebarOpen ? "translateX(0)" : undefined,
-        transition: "transform 0.3s",
-        ...(typeof window !== 'undefined' && window.innerWidth < 768 && !sidebarOpen ? { position: "fixed", transform: "translateX(-100%)" } : {}),
+        position: sidebarOpen ? "fixed" : "relative", zIndex: 100, height: "100vh",
       }}>
-        {/* Logo area */}
-        <div style={{
-          padding: "20px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)",
-          textAlign: "center",
-        }}>
-          <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1 }}>
-            <span style={{ color: COLORS.cyan }}>PLYNN</span>
+        <div style={{ padding: "20px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)", textAlign: "center" }}>
+          {/* Logo de la empresa si está cargado */}
+          {data.empresa.logo && (
+            <div style={{ marginBottom: 10 }}>
+              <img src={data.empresa.logo} alt="Logo" style={{ maxHeight: 50, maxWidth: 160, objectFit: "contain", borderRadius: 4 }} />
+            </div>
+          )}
+          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Cámara de Comercio Aburrá Sur</div>
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>
+            <span style={{ color: COLORS.cyan }}>plynn</span>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.cyan, marginTop: 4 }}>
-            PLANTILLA INNOVACCIÓN
-          </div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>2026</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.cyan, marginTop: 4 }}>PLANTILLA INNOVACCIÓN</div>
         </div>
 
-        {/* Progress */}
         <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginBottom: 4 }}>Progreso general</div>
           <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, height: 8, overflow: "hidden" }}>
-            <div style={{
-              width: `${progress}%`, height: "100%",
-              background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`,
-              borderRadius: 20, transition: "width 0.5s",
-            }} />
+            <div style={{ width: `${progress}%`, height: "100%", background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`, borderRadius: 20, transition: "width 0.5s" }} />
           </div>
           <div style={{ fontSize: 12, color: COLORS.cyan, marginTop: 4, fontWeight: 600 }}>{progress}%</div>
         </div>
 
-        {/* Navigation */}
         <nav style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
           {TALLERES.map((t, ti) => (
             <div key={ti}>
-              <div
-                onClick={() => goToActivity(ti, 0)}
-                style={{
-                  padding: "10px 16px", cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 10,
-                  background: currentTaller === ti ? "rgba(15,186,227,0.15)" : "transparent",
-                  borderLeft: currentTaller === ti ? `3px solid ${COLORS.cyan}` : "3px solid transparent",
-                  transition: "all 0.2s",
-                  fontSize: 13, fontWeight: currentTaller === ti ? 700 : 500,
-                }}
-              >
+              <div onClick={() => goToActivity(ti, 0)} style={{
+                padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
+                background: currentTaller === ti ? "rgba(15,186,227,0.15)" : "transparent",
+                borderLeft: currentTaller === ti ? `3px solid ${COLORS.cyan}` : "3px solid transparent",
+                fontSize: 13, fontWeight: currentTaller === ti ? 700 : 500,
+              }}>
                 <span style={{ fontSize: 18 }}>{t.icon}</span>
                 <span>{t.titulo}</span>
               </div>
               {currentTaller === ti && (
                 <div style={{ paddingLeft: 44 }}>
                   {t.actividades.map((a, ai) => (
-                    <div key={ai}
-                      onClick={() => goToActivity(ti, ai)}
-                      style={{
-                        padding: "6px 12px", cursor: "pointer",
-                        fontSize: 12, color: currentActivity === ai ? COLORS.cyan : "rgba(255,255,255,0.6)",
-                        fontWeight: currentActivity === ai ? 600 : 400,
-                        borderLeft: currentActivity === ai ? `2px solid ${COLORS.cyan}` : "2px solid transparent",
-                        transition: "all 0.15s",
-                      }}>
-                      {a.titulo}
-                    </div>
+                    <div key={ai} onClick={() => goToActivity(ti, ai)} style={{
+                      padding: "6px 12px", cursor: "pointer",
+                      fontSize: 12, color: currentActivity === ai ? COLORS.cyan : "rgba(255,255,255,0.6)",
+                      fontWeight: currentActivity === ai ? 600 : 400,
+                      borderLeft: currentActivity === ai ? `2px solid ${COLORS.cyan}` : "2px solid transparent",
+                    }}>{a.titulo}</div>
                   ))}
                 </div>
               )}
@@ -2176,29 +2211,21 @@ function InnovaccionApp({ user, onLogout }) {
           ))}
         </nav>
 
-        {/* Export button */}
+        {/* CORRECCIÓN #17: Botones de descarga */}
         <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+          <button onClick={() => downloadFullReport(data)}
+            style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: COLORS.cyan, color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'Montserrat', sans-serif", marginBottom: 6 }}>
+            📄 Descargar Plantilla Completa
+          </button>
           <button onClick={() => downloadCSV(data)}
-            style={{
-              width: "100%", padding: "10px 16px", borderRadius: 8,
-              background: COLORS.cyan, color: "#fff", border: "none",
-              cursor: "pointer", fontWeight: 700, fontSize: 13,
-              fontFamily: "'Montserrat', sans-serif",
-            }}>
+            style={{ width: "100%", padding: "8px 16px", borderRadius: 8, background: "rgba(15,186,227,0.2)", color: COLORS.cyan, border: `1px solid ${COLORS.cyan}`, cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "'Montserrat', sans-serif" }}>
             📥 Exportar a CSV
           </button>
         </div>
         <div style={{ padding: "8px 16px 16px" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 6, textAlign: "center" }}>
-            Sesión: {user}
-          </div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 6, textAlign: "center" }}>Sesión: {user}</div>
           <button onClick={onLogout}
-            style={{
-              width: "100%", padding: "8px 16px", borderRadius: 8,
-              background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.2)",
-              cursor: "pointer", fontWeight: 600, fontSize: 12,
-              fontFamily: "'Montserrat', sans-serif",
-            }}>
+            style={{ width: "100%", padding: "8px 16px", borderRadius: 8, background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "'Montserrat', sans-serif" }}>
             Cerrar sesión
           </button>
         </div>
@@ -2206,122 +2233,39 @@ function InnovaccionApp({ user, onLogout }) {
 
       {/* Main content */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Top bar */}
-        <header style={{
-          background: "#fff", padding: "12px 20px",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          borderBottom: `1px solid ${COLORS.lightGray}`,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-        }}>
+        <header style={{ background: "#fff", padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${COLORS.lightGray}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => setSidebarOpen(!sidebarOpen)}
-              style={{
-                background: "none", border: "none", fontSize: 22, cursor: "pointer",
-                color: COLORS.navy, padding: 4,
-              }}>☰</button>
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: COLORS.navy, padding: 4 }}>☰</button>
             <div>
-              <div style={{ fontSize: 11, color: COLORS.gray, fontWeight: 500 }}>
-                {taller.icon} {taller.titulo}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.navy }}>
-                {showingIntro ? "Introducción al taller" : activity?.titulo}
-              </div>
+              <div style={{ fontSize: 11, color: COLORS.gray, fontWeight: 500 }}>{taller.icon} {taller.titulo}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.navy }}>{showingIntro ? "Introducción al taller" : activity?.titulo}</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {saving && (
-              <span style={{ fontSize: 12, color: COLORS.green, fontWeight: 500 }}>
-                ✓ Guardado
-              </span>
-            )}
+            {saving && <span style={{ fontSize: 12, color: COLORS.green, fontWeight: 500 }}>✓ Guardado</span>}
             {data.empresa.nombre && (
-              <span style={{
-                fontSize: 12, color: COLORS.navy, fontWeight: 600,
-                background: COLORS.lightCyan, padding: "4px 10px", borderRadius: 20,
-              }}>
+              <span style={{ fontSize: 12, color: COLORS.navy, fontWeight: 600, background: COLORS.lightCyan, padding: "4px 10px", borderRadius: 20 }}>
                 {data.empresa.nombre}
               </span>
             )}
           </div>
         </header>
 
-        {/* Content area */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px 100px" }}>
           {showingIntro ? (
-            /* ====== TALLER INTRO SCREEN ====== */
-            <div style={{
-              maxWidth: 650, margin: "0 auto", textAlign: "center",
-              display: "flex", flexDirection: "column", alignItems: "center",
-              justifyContent: "center", minHeight: "60vh",
-            }}>
-              {/* Decorative top bar */}
-              <div style={{
-                width: "100%", height: 6, borderRadius: 3,
-                background: `linear-gradient(90deg, ${taller.color}, ${COLORS.cyan})`,
-                marginBottom: 40,
-              }} />
-
-              {/* Taller number badge */}
-              <div style={{
-                width: 80, height: 80, borderRadius: "50%",
-                background: `linear-gradient(135deg, ${taller.color}, ${taller.color}DD)`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 36, marginBottom: 20,
-                boxShadow: `0 8px 30px ${taller.color}40`,
-              }}>
+            <div style={{ maxWidth: 650, margin: "0 auto", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+              <div style={{ width: "100%", height: 6, borderRadius: 3, background: `linear-gradient(90deg, ${taller.color}, ${COLORS.cyan})`, marginBottom: 40 }} />
+              <div style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg, ${taller.color}, ${taller.color}DD)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, marginBottom: 20, boxShadow: `0 8px 30px ${taller.color}40` }}>
                 {taller.icon}
               </div>
-
-              {/* Taller label */}
-              <div style={{
-                fontSize: 13, fontWeight: 700, color: taller.color,
-                textTransform: "uppercase", letterSpacing: 3,
-                marginBottom: 8,
-              }}>
-                Taller {currentTaller + 1} de {TALLERES.length}
-              </div>
-
-              {/* Taller title */}
-              <h1 style={{
-                fontSize: 32, fontWeight: 800, color: COLORS.navy,
-                margin: "0 0 16px", lineHeight: 1.2,
-                fontFamily: "'Montserrat', sans-serif",
-              }}>
-                {taller.titulo}
-              </h1>
-
-              {/* Description */}
-              <p style={{
-                fontSize: 16, color: COLORS.gray, lineHeight: 1.7,
-                maxWidth: 500, margin: "0 0 32px",
-              }}>
-                {taller.intro}
-              </p>
-
-              {/* Activities preview */}
-              <div style={{
-                background: "#fff", borderRadius: 12, padding: "16px 20px",
-                width: "100%", maxWidth: 450, textAlign: "left",
-                border: `1px solid ${COLORS.lightGray}`,
-                marginBottom: 32,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
-                  Actividades en este taller
-                </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: taller.color, textTransform: "uppercase", letterSpacing: 3, marginBottom: 8 }}>Taller {currentTaller + 1} de {TALLERES.length}</div>
+              <h1 style={{ fontSize: 32, fontWeight: 800, color: COLORS.navy, margin: "0 0 16px", lineHeight: 1.2, fontFamily: "'Montserrat', sans-serif" }}>{taller.titulo}</h1>
+              <p style={{ fontSize: 16, color: COLORS.gray, lineHeight: 1.7, maxWidth: 500, margin: "0 0 32px" }}>{taller.intro}</p>
+              <div style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", width: "100%", maxWidth: 450, textAlign: "left", border: `1px solid ${COLORS.lightGray}`, marginBottom: 32 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Actividades en este taller</div>
                 {taller.actividades.map((act, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    padding: "8px 0",
-                    borderBottom: i < taller.actividades.length - 1 ? `1px solid ${COLORS.lightGray}` : "none",
-                  }}>
-                    <div style={{
-                      width: 26, height: 26, borderRadius: "50%",
-                      background: taller.color + "20", color: taller.color,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12, fontWeight: 800, flexShrink: 0,
-                    }}>
-                      {i + 1}
-                    </div>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < taller.actividades.length - 1 ? `1px solid ${COLORS.lightGray}` : "none" }}>
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: taller.color + "20", color: taller.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{i + 1}</div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.navy }}>{act.titulo}</div>
                       <div style={{ fontSize: 12, color: COLORS.gray }}>{act.desc}</div>
@@ -2329,76 +2273,34 @@ function InnovaccionApp({ user, onLogout }) {
                   </div>
                 ))}
               </div>
-
-              {/* Start button */}
-              <button onClick={startTaller}
-                style={{
-                  background: `linear-gradient(135deg, ${taller.color}, ${taller.color}CC)`,
-                  color: "#fff", border: "none", padding: "16px 48px", borderRadius: 12,
-                  cursor: "pointer", fontSize: 18, fontWeight: 800,
-                  fontFamily: "'Montserrat', sans-serif",
-                  boxShadow: `0 6px 25px ${taller.color}40`,
-                  display: "inline-flex", alignItems: "center", gap: 10,
-                  transition: "transform 0.2s, box-shadow 0.2s",
-                }}>
+              <button onClick={startTaller} style={{ background: `linear-gradient(135deg, ${taller.color}, ${taller.color}CC)`, color: "#fff", border: "none", padding: "16px 48px", borderRadius: 12, cursor: "pointer", fontSize: 18, fontWeight: 800, fontFamily: "'Montserrat', sans-serif", boxShadow: `0 6px 25px ${taller.color}40`, display: "inline-flex", alignItems: "center", gap: 10 }}>
                 Iniciar Taller →
               </button>
-
-              {/* Bottom decorative bar */}
-              <div style={{
-                width: "100%", height: 6, borderRadius: 3,
-                background: `linear-gradient(90deg, ${COLORS.cyan}, ${taller.color})`,
-                marginTop: 40,
-              }} />
+              <div style={{ width: "100%", height: 6, borderRadius: 3, background: `linear-gradient(90deg, ${COLORS.cyan}, ${taller.color})`, marginTop: 40 }} />
             </div>
           ) : (
-            /* ====== NORMAL ACTIVITY VIEW ====== */
             <div style={{ maxWidth: 900, margin: "0 auto" }}>
-              {/* Activity description */}
               {activity && (
-                <div style={{
-                  marginBottom: 20, padding: "12px 16px",
-                  background: "#fff", borderRadius: 10,
-                  borderLeft: `4px solid ${taller.color}`,
-                  fontSize: 14, color: COLORS.gray, lineHeight: 1.5,
-                }}>
+                <div style={{ marginBottom: 20, padding: "12px 16px", background: "#fff", borderRadius: 10, borderLeft: `4px solid ${taller.color}`, fontSize: 14, color: COLORS.gray, lineHeight: 1.5 }}>
                   {activity.desc}
                 </div>
               )}
-
-              {/* Render the activity */}
               {activity && <RenderActivity activityId={activity.id} data={data} setData={setData} />}
             </div>
           )}
         </div>
 
-        {/* Bottom navigation */}
-        <div style={{
-          background: "#fff", padding: "12px 24px",
-          borderTop: `1px solid ${COLORS.lightGray}`,
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-        }}>
-          <button onClick={prevActivity}
-            disabled={currentTaller === 0 && showingIntro}
-            style={{
-              ...btnStyle(COLORS.navy), opacity: (currentTaller === 0 && showingIntro) ? 0.3 : 1,
-              padding: "10px 20px",
-            }}>
+        <div style={{ background: "#fff", padding: "12px 24px", borderTop: `1px solid ${COLORS.lightGray}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={prevActivity} disabled={currentTaller === 0 && showingIntro}
+            style={{ ...btnStyle(COLORS.navy), opacity: (currentTaller === 0 && showingIntro) ? 0.3 : 1, padding: "10px 20px" }}>
             ← Anterior
           </button>
           <span style={{ fontSize: 12, color: COLORS.gray }}>
-            {showingIntro
-              ? `Taller ${currentTaller + 1} de ${TALLERES.length}`
-              : `Taller ${currentTaller + 1} · Actividad ${currentActivity + 1} de ${taller.actividades.length}`
-            }
+            {showingIntro ? `Taller ${currentTaller + 1} de ${TALLERES.length}` : `Taller ${currentTaller + 1} · Actividad ${currentActivity + 1} de ${taller.actividades.length}`}
           </span>
           <button onClick={nextActivity}
             disabled={currentTaller === TALLERES.length - 1 && !showingIntro && currentActivity === taller.actividades.length - 1}
-            style={{
-              ...btnStyle(COLORS.cyan),
-              opacity: (currentTaller === TALLERES.length - 1 && !showingIntro && currentActivity === taller.actividades.length - 1) ? 0.3 : 1,
-              padding: "10px 20px",
-            }}>
+            style={{ ...btnStyle(COLORS.cyan), opacity: (currentTaller === TALLERES.length - 1 && !showingIntro && currentActivity === taller.actividades.length - 1) ? 0.3 : 1, padding: "10px 20px" }}>
             {showingIntro ? "Iniciar →" : "Siguiente →"}
           </button>
         </div>
@@ -2411,7 +2313,7 @@ function InnovaccionApp({ user, onLogout }) {
 // LOGIN SCREEN
 // ============================================================
 function LoginScreen({ onLogin }) {
-  const [mode, setMode] = useState("login"); // "login" or "register"
+  const [mode, setMode] = useState("login");
   const [empresa, setEmpresa] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
@@ -2419,167 +2321,61 @@ function LoginScreen({ onLogin }) {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!empresa.trim() || !password.trim()) {
-      setError("Por favor llena todos los campos");
-      return;
-    }
-    setLoading(true);
-    setError("");
-
+    if (!empresa.trim() || !password.trim()) { setError("Por favor llena todos los campos"); return; }
+    setLoading(true); setError("");
     if (mode === "register") {
       const res = await apiCall("register", { empresa: empresa.trim(), password, email });
-      if (res.success) {
-        // Auto login after register
-        onLogin(empresa.trim());
-      } else {
-        setError(res.error || "Error al registrar");
-      }
+      if (res.success) { onLogin(empresa.trim()); } else { setError(res.error || "Error al registrar"); }
     } else {
       const res = await apiCall("login", { empresa: empresa.trim(), password });
-      if (res.success) {
-        onLogin(res.empresa || empresa.trim());
-      } else {
-        setError(res.error || "Error al iniciar sesión");
-      }
+      if (res.success) { onLogin(res.empresa || empresa.trim()); } else { setError(res.error || "Error al iniciar sesión"); }
     }
     setLoading(false);
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleSubmit();
-  };
-
   return (
-    <div style={{
-      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: `linear-gradient(135deg, ${COLORS.navy} 0%, #0D1B3E 50%, ${COLORS.lightNavy} 100%)`,
-      fontFamily: "'Montserrat', sans-serif", padding: 20,
-    }}>
-      {/* Decorative background elements */}
-      <div style={{
-        position: "absolute", top: "10%", left: "5%", width: 300, height: 300,
-        borderRadius: "50%", background: COLORS.cyan + "08",
-        filter: "blur(80px)",
-      }} />
-      <div style={{
-        position: "absolute", bottom: "10%", right: "10%", width: 400, height: 400,
-        borderRadius: "50%", background: COLORS.yellow + "06",
-        filter: "blur(100px)",
-      }} />
-
-      <div style={{
-        background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "40px 36px",
-        maxWidth: 420, width: "100%", position: "relative",
-        boxShadow: "0 25px 80px rgba(0,0,0,0.4)",
-      }}>
-        {/* Logo */}
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${COLORS.navy} 0%, #0D1B3E 50%, ${COLORS.lightNavy} 100%)`, fontFamily: "'Montserrat', sans-serif", padding: 20 }}>
+      <div style={{ position: "absolute", top: "10%", left: "5%", width: 300, height: 300, borderRadius: "50%", background: COLORS.cyan + "08", filter: "blur(80px)" }} />
+      <div style={{ position: "absolute", bottom: "10%", right: "10%", width: 400, height: 400, borderRadius: "50%", background: COLORS.yellow + "06", filter: "blur(100px)" }} />
+      <div style={{ background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "40px 36px", maxWidth: 420, width: "100%", position: "relative", boxShadow: "0 25px 80px rgba(0,0,0,0.4)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>🚀</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: COLORS.navy, letterSpacing: 1 }}>
-            <span style={{ color: COLORS.cyan }}>PLYNN</span>
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.cyan, marginTop: 2 }}>
-            PLANTILLA INNOVACCIÓN 2026
-          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.gray, marginBottom: 2 }}>Cámara de Comercio Aburrá Sur</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: COLORS.navy }}><span style={{ color: COLORS.cyan }}>plynn</span></div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.cyan, marginTop: 2 }}>PLANTILLA INNOVACCIÓN</div>
         </div>
-
-        {/* Mode tabs */}
         <div style={{ display: "flex", marginBottom: 24, borderRadius: 10, overflow: "hidden", border: `2px solid ${COLORS.lightGray}` }}>
           {["login", "register"].map(m => (
             <button key={m} onClick={() => { setMode(m); setError(""); }}
-              style={{
-                flex: 1, padding: "10px 0", border: "none", cursor: "pointer",
-                fontFamily: "'Montserrat', sans-serif", fontSize: 13, fontWeight: 700,
-                background: mode === m ? COLORS.navy : "#fff",
-                color: mode === m ? "#fff" : COLORS.gray,
-                transition: "all 0.2s",
-              }}>
+              style={{ flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 13, fontWeight: 700, background: mode === m ? COLORS.navy : "#fff", color: mode === m ? "#fff" : COLORS.gray }}>
               {m === "login" ? "Iniciar Sesión" : "Registrarse"}
             </button>
           ))}
         </div>
-
-        {/* Form */}
         <div>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
-            Nombre de la empresa
-          </label>
-          <input
-            value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={handleKeyDown}
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>Nombre de la empresa</label>
+          <input value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
             placeholder="Ej: Mi Empresa S.A.S."
-            style={{
-              width: "100%", padding: "12px 16px", borderRadius: 10,
-              border: `2px solid ${COLORS.lightGray}`, fontSize: 15,
-              fontFamily: "'Montserrat', sans-serif", outline: "none",
-              boxSizing: "border-box", marginBottom: 14,
-              transition: "border-color 0.2s",
-            }}
-          />
-
+            style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: `2px solid ${COLORS.lightGray}`, fontSize: 15, fontFamily: "'Montserrat', sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
           {mode === "register" && (
             <>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
-                Email (opcional)
-              </label>
-              <input
-                value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown}
-                placeholder="correo@empresa.com"
-                type="email"
-                style={{
-                  width: "100%", padding: "12px 16px", borderRadius: 10,
-                  border: `2px solid ${COLORS.lightGray}`, fontSize: 15,
-                  fontFamily: "'Montserrat', sans-serif", outline: "none",
-                  boxSizing: "border-box", marginBottom: 14,
-                }}
-              />
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>Email (opcional)</label>
+              <input value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@empresa.com" type="email"
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: `2px solid ${COLORS.lightGray}`, fontSize: 15, fontFamily: "'Montserrat', sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
             </>
           )}
-
-          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
-            Contraseña
-          </label>
-          <input
-            value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown}
-            placeholder="••••••••"
-            type="password"
-            style={{
-              width: "100%", padding: "12px 16px", borderRadius: 10,
-              border: `2px solid ${COLORS.lightGray}`, fontSize: 15,
-              fontFamily: "'Montserrat', sans-serif", outline: "none",
-              boxSizing: "border-box", marginBottom: 8,
-            }}
-          />
-
-          {/* Error message */}
-          {error && (
-            <div style={{
-              background: "#FEF2F2", color: COLORS.red, padding: "8px 12px",
-              borderRadius: 8, fontSize: 13, marginTop: 8, marginBottom: 4,
-              border: `1px solid ${COLORS.red}30`,
-            }}>
-              {error}
-            </div>
-          )}
-
-          {/* Submit */}
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>Contraseña</label>
+          <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
+            placeholder="••••••••" type="password"
+            style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: `2px solid ${COLORS.lightGray}`, fontSize: 15, fontFamily: "'Montserrat', sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+          {error && <div style={{ background: "#FEF2F2", color: COLORS.red, padding: "8px 12px", borderRadius: 8, fontSize: 13, marginTop: 8 }}>{error}</div>}
           <button onClick={handleSubmit} disabled={loading}
-            style={{
-              width: "100%", padding: "14px 0", borderRadius: 12, border: "none",
-              background: loading ? COLORS.gray : `linear-gradient(135deg, ${COLORS.cyan}, ${COLORS.lightNavy})`,
-              color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer",
-              fontFamily: "'Montserrat', sans-serif", marginTop: 16,
-              boxShadow: loading ? "none" : `0 6px 25px ${COLORS.cyan}40`,
-              transition: "all 0.2s",
-            }}>
+            style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? COLORS.gray : `linear-gradient(135deg, ${COLORS.cyan}, ${COLORS.lightNavy})`, color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 16 }}>
             {loading ? "Conectando..." : mode === "login" ? "Entrar →" : "Registrar empresa →"}
           </button>
         </div>
-
-        {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: COLORS.gray, lineHeight: 1.6 }}>
-          {mode === "login"
-            ? "Tu progreso se guarda automáticamente en la nube."
-            : "Registra tu empresa para guardar el progreso del Programa INNOVACCIÓN."}
+        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: COLORS.gray }}>
+          {mode === "login" ? "Tu progreso se guarda automáticamente en la nube." : "Registra tu empresa para guardar el progreso del Programa INNOVACCIÓN."}
         </div>
       </div>
     </div>
@@ -2587,38 +2383,24 @@ function LoginScreen({ onLogin }) {
 }
 
 // ============================================================
-// APP WRAPPER — handles auth state
+// APP WRAPPER
 // ============================================================
 function AppWrapper() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in (saved in localStorage)
     const savedUser = localStorage.getItem("innovaccion_user");
-    if (savedUser) {
-      setUser(savedUser);
-    }
+    if (savedUser) setUser(savedUser);
     setChecking(false);
   }, []);
 
-  const handleLogin = (empresa) => {
-    localStorage.setItem("innovaccion_user", empresa);
-    setUser(empresa);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("innovaccion_user");
-    setUser(null);
-  };
+  const handleLogin = (empresa) => { localStorage.setItem("innovaccion_user", empresa); setUser(empresa); };
+  const handleLogout = () => { localStorage.removeItem("innovaccion_user"); setUser(null); };
 
   if (checking) {
     return (
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        height: "100vh", fontFamily: "'Montserrat', sans-serif",
-        background: COLORS.navy, color: "#fff",
-      }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'Montserrat', sans-serif", background: COLORS.navy, color: "#fff" }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🚀</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>Cargando INNOVACCIÓN...</div>
@@ -2627,10 +2409,7 @@ function AppWrapper() {
     );
   }
 
-  if (!user) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
-
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
   return <InnovaccionApp user={user} onLogout={handleLogout} />;
 }
 
