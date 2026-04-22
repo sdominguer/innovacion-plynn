@@ -39,55 +39,13 @@ const { useState, useEffect, useCallback, useRef } = React;
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvHvdG6J6ekLxrFS4ugpaxsx6BXgGCmniGcfN-NI449RZ8wDKvhX-fL2qXgRMdVbeP/exec";
 
 async function apiCall(action, params = {}) {
-  // ── MODO LOCAL (sin backend) ──────────────────────────────
-  // Si no hay URL configurada o la llamada falla, todo se
-  // resuelve con localStorage para que la herramienta funcione
-  // sin necesidad de Google Apps Script.
   const USE_LOCAL = !APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("TU_URL");
-
-  if (action === "login") {
-    const stored = localStorage.getItem("user_" + params.empresa);
-    if (!stored) return { success: false, error: "Empresa no registrada. Regístrate primero." };
-    const u = JSON.parse(stored);
-    if (u.password !== params.password) return { success: false, error: "Contraseña incorrecta." };
-    return { success: true, empresa: params.empresa };
-  }
-
-  if (action === "register") {
-    const existing = localStorage.getItem("user_" + params.empresa);
-    if (existing) return { success: false, error: "Esta empresa ya está registrada. Inicia sesión." };
-    localStorage.setItem("user_" + params.empresa, JSON.stringify({ password: params.password, email: params.email || "" }));
-    return { success: true };
-  }
-
-  if (action === "load") {
-    const raw = localStorage.getItem(STORAGE_KEY + "_" + params.empresa);
-    if (raw) return { success: true, datos: JSON.parse(raw) };
-    return { success: true, datos: {} };
-  }
-
-  if (action === "save") {
-    // localStorage ya se guarda en el useEffect; aquí solo simulamos éxito
-    // Si hay backend configurado, intentamos también enviarlo
-    if (!USE_LOCAL) {
-      try {
-        let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
-        for (const [key, val] of Object.entries(params)) {
-          if (key === "datos") url += "&payload=" + encodeURIComponent(JSON.stringify(val));
-          else url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
-        }
-        const res = await fetch(url);
-        return await res.json();
-      } catch (e) {
-        // Si falla el backend, no pasa nada — ya está en localStorage
-        return { success: true };
-      }
-    }
-    return { success: true };
-  }
-
-  // Cualquier otra acción: intento al backend si está configurado
-  if (!USE_LOCAL) {
+ 
+  // ── Acciones que SIEMPRE van al backend si está configurado ──
+  const BACKEND_ACTIONS = ["login", "register", "save", "load", "resetPassword", "verifyCode", "updatePassword"];
+ 
+  // Si hay backend configurado, intentar primero con el backend
+  if (!USE_LOCAL && BACKEND_ACTIONS.includes(action)) {
     try {
       let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
       for (const [key, val] of Object.entries(params)) {
@@ -95,15 +53,61 @@ async function apiCall(action, params = {}) {
         else url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
       }
       const res = await fetch(url);
-      return await res.json();
+      const result = await res.json();
+      // Para "save", si el backend responde, también guardar local como respaldo
+      if (action === "save" && result.success) {
+        try {
+          const toSave = params.datos || {};
+          localStorage.setItem(STORAGE_KEY + "_" + params.empresa, JSON.stringify(toSave));
+        } catch (e) { /* respaldo local falló, no pasa nada */ }
+      }
+      return result;
     } catch (e) {
-      return { success: false, error: "Error de conexión." };
+      // Si el backend falla, caer al modo local para login/register/load/save
+      if (action === "resetPassword" || action === "verifyCode") {
+        return { success: false, error: "No se pudo conectar al servidor. Verifica tu conexión a internet e intenta de nuevo." };
+      }
+      // Para las demás acciones, continuar con localStorage como fallback
     }
   }
-
+ 
+  // ── MODO LOCAL (fallback sin backend) ──
+  if (action === "login") {
+    const stored = localStorage.getItem("user_" + params.empresa);
+    if (!stored) return { success: false, error: "Empresa no registrada. Regístrate primero." };
+    const u = JSON.parse(stored);
+    if (u.password !== params.password) return { success: false, error: "Contraseña incorrecta." };
+    return { success: true, empresa: params.empresa };
+  }
+ 
+  if (action === "register") {
+    const existing = localStorage.getItem("user_" + params.empresa);
+    if (existing) return { success: false, error: "Esta empresa ya está registrada. Inicia sesión." };
+    localStorage.setItem("user_" + params.empresa, JSON.stringify({ password: params.password, email: params.email || "" }));
+    return { success: true };
+  }
+ 
+  if (action === "load") {
+    const raw = localStorage.getItem(STORAGE_KEY + "_" + params.empresa);
+    if (raw) return { success: true, datos: JSON.parse(raw) };
+    return { success: true, datos: {} };
+  }
+ 
+  if (action === "save") {
+    return { success: true };
+  }
+ 
+  if (action === "resetPassword") {
+    return { success: false, error: "La recuperación de contraseña requiere conexión al servidor. Verifica tu conexión." };
+  }
+ 
+  if (action === "verifyCode") {
+    return { success: false, error: "La verificación del código requiere conexión al servidor. Verifica tu conexión." };
+  }
+ 
   return { success: true };
 }
-
+    
 // ============================================================
 // PLANTILLA DIGITAL INNOVACCIÓN 2026 — PLYNN
 // ============================================================
@@ -2313,75 +2317,242 @@ function InnovaccionApp({ user, onLogout }) {
 // LOGIN SCREEN
 // ============================================================
 function LoginScreen({ onLogin }) {
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState("login"); // "login" | "register" | "forgot" | "newpass"
   const [empresa, setEmpresa] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
-
+ 
+  const switchMode = (m) => { setMode(m); setError(""); setSuccess(""); };
+ 
   const handleSubmit = async () => {
-    if (!empresa.trim() || !password.trim()) { setError("Por favor llena todos los campos"); return; }
-    setLoading(true); setError("");
-    if (mode === "register") {
-      const res = await apiCall("register", { empresa: empresa.trim(), password, email });
-      if (res.success) { onLogin(empresa.trim()); } else { setError(res.error || "Error al registrar"); }
-    } else {
+    setError(""); setSuccess("");
+ 
+    if (mode === "login") {
+      if (!empresa.trim() || !password.trim()) { setError("Por favor llena todos los campos"); return; }
+      setLoading(true);
       const res = await apiCall("login", { empresa: empresa.trim(), password });
-      if (res.success) { onLogin(res.empresa || empresa.trim()); } else { setError(res.error || "Error al iniciar sesión"); }
+      if (res.success) { onLogin(res.empresa || empresa.trim()); }
+      else { setError(res.error || "Error al iniciar sesión"); }
+      setLoading(false);
     }
-    setLoading(false);
+ 
+    else if (mode === "register") {
+      if (!empresa.trim() || !password.trim()) { setError("Por favor llena todos los campos"); return; }
+      if (!email.trim()) { setError("El correo electrónico es obligatorio para poder recuperar tu contraseña en el futuro"); return; }
+      if (password.length < 4) { setError("La contraseña debe tener mínimo 4 caracteres"); return; }
+      setLoading(true);
+      const res = await apiCall("register", { empresa: empresa.trim(), password, email: email.trim() });
+      if (res.success) { onLogin(empresa.trim()); }
+      else { setError(res.error || "Error al registrar"); }
+      setLoading(false);
+    }
+ 
+    else if (mode === "forgot") {
+      if (!empresa.trim()) { setError("Escribe el nombre de tu empresa"); return; }
+      if (!email.trim()) { setError("Escribe el correo electrónico con el que te registraste"); return; }
+      setLoading(true);
+      const res = await apiCall("resetPassword", { empresa: empresa.trim(), email: email.trim() });
+      if (res.success) {
+        setSuccess(res.message || "Código enviado a tu correo.");
+        setMode("newpass");
+      } else {
+        setError(res.error || "No se pudo enviar el código.");
+      }
+      setLoading(false);
+    }
+ 
+    else if (mode === "newpass") {
+      if (!code.trim()) { setError("Ingresa el código de 6 dígitos que recibiste por correo"); return; }
+      if (!newPassword.trim()) { setError("Escribe tu nueva contraseña"); return; }
+      if (newPassword.length < 4) { setError("La nueva contraseña debe tener mínimo 4 caracteres"); return; }
+      if (newPassword !== confirmPassword) { setError("Las contraseñas no coinciden"); return; }
+      setLoading(true);
+      const res = await apiCall("verifyCode", { empresa: empresa.trim(), code: code.trim(), newPassword });
+      if (res.success) {
+        setSuccess(res.message || "Contraseña actualizada. Ya puedes iniciar sesión.");
+        setTimeout(() => { switchMode("login"); setPassword(""); }, 2500);
+      } else {
+        setError(res.error || "Error al verificar el código.");
+      }
+      setLoading(false);
+    }
   };
-
+ 
+  const loginInputStyle = {
+    width: "100%", padding: "12px 16px", borderRadius: 10,
+    border: "2px solid #E5E7EB", fontSize: 15,
+    fontFamily: "'Montserrat', sans-serif", outline: "none",
+    boxSizing: "border-box", marginBottom: 14,
+    transition: "border-color 0.2s",
+  };
+ 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${COLORS.navy} 0%, #0D1B3E 50%, ${COLORS.lightNavy} 100%)`, fontFamily: "'Montserrat', sans-serif", padding: 20 }}>
-      <div style={{ position: "absolute", top: "10%", left: "5%", width: 300, height: 300, borderRadius: "50%", background: COLORS.cyan + "08", filter: "blur(80px)" }} />
-      <div style={{ position: "absolute", bottom: "10%", right: "10%", width: 400, height: 400, borderRadius: "50%", background: COLORS.yellow + "06", filter: "blur(100px)" }} />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #1A2E4A 0%, #0D1B3E 50%, #223D5E 100%)", fontFamily: "'Montserrat', sans-serif", padding: 20 }}>
+      <div style={{ position: "absolute", top: "10%", left: "5%", width: 300, height: 300, borderRadius: "50%", background: "rgba(0,160,176,0.03)", filter: "blur(80px)" }} />
+      <div style={{ position: "absolute", bottom: "10%", right: "10%", width: 400, height: 400, borderRadius: "50%", background: "rgba(245,166,35,0.02)", filter: "blur(100px)" }} />
       <div style={{ background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "40px 36px", maxWidth: 420, width: "100%", position: "relative", boxShadow: "0 25px 80px rgba(0,0,0,0.4)" }}>
+ 
+        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>🚀</div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.gray, marginBottom: 2 }}>Cámara de Comercio Aburrá Sur</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: COLORS.navy }}><span style={{ color: COLORS.cyan }}>plynn</span></div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.cyan, marginTop: 2 }}>PLANTILLA INNOVACCIÓN</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 2 }}>Cámara de Comercio Aburrá Sur</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#1A2E4A" }}><span style={{ color: "#00A0B0" }}>plynn</span></div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#00A0B0", marginTop: 2 }}>PLANTILLA INNOVACCIÓN</div>
         </div>
-        <div style={{ display: "flex", marginBottom: 24, borderRadius: 10, overflow: "hidden", border: `2px solid ${COLORS.lightGray}` }}>
-          {["login", "register"].map(m => (
-            <button key={m} onClick={() => { setMode(m); setError(""); }}
-              style={{ flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 13, fontWeight: 700, background: mode === m ? COLORS.navy : "#fff", color: mode === m ? "#fff" : COLORS.gray }}>
-              {m === "login" ? "Iniciar Sesión" : "Registrarse"}
+ 
+        {/* ── MODO: LOGIN / REGISTER ── */}
+        {(mode === "login" || mode === "register") && (
+          <div>
+            <div style={{ display: "flex", marginBottom: 24, borderRadius: 10, overflow: "hidden", border: "2px solid #E5E7EB" }}>
+              {["login", "register"].map(m => (
+                <button key={m} onClick={() => switchMode(m)}
+                  style={{ flex: 1, padding: "10px 0", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 13, fontWeight: 700, background: mode === m ? "#1A2E4A" : "#fff", color: mode === m ? "#fff" : "#6B7280" }}>
+                  {m === "login" ? "Iniciar Sesión" : "Registrarse"}
+                </button>
+              ))}
+            </div>
+ 
+            <div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Nombre de la empresa</label>
+              <input value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
+                placeholder="Ej: Mi Empresa S.A.S." style={loginInputStyle} />
+ 
+              {mode === "register" && (
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>
+                    Correo electrónico <span style={{ color: "#E53935" }}>*</span>
+                  </label>
+                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6 }}>
+                    Necesario para recuperar tu contraseña en el futuro
+                  </div>
+                  <input value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@empresa.com" type="email"
+                    style={loginInputStyle} />
+                </div>
+              )}
+ 
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Contraseña</label>
+              <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
+                placeholder="••••••••" type="password" style={loginInputStyle} />
+ 
+              {error && <div style={{ background: "#FEF2F2", color: "#E53935", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginTop: 8 }}>{error}</div>}
+ 
+              <button onClick={handleSubmit} disabled={loading}
+                style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? "#6B7280" : "linear-gradient(135deg, #00A0B0, #223D5E)", color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 16 }}>
+                {loading ? "Conectando..." : mode === "login" ? "Entrar →" : "Registrar empresa →"}
+              </button>
+ 
+              {/* Enlace "Olvidé mi contraseña" */}
+              {mode === "login" && (
+                <div style={{ textAlign: "center", marginTop: 16 }}>
+                  <button onClick={() => switchMode("forgot")}
+                    style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 13, color: "#00A0B0", fontWeight: 600, textDecoration: "underline", padding: 0 }}>
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </div>
+              )}
+            </div>
+ 
+            <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#6B7280" }}>
+              {mode === "login" ? "Tu progreso se guarda automáticamente en la nube." : "Registra tu empresa para guardar el progreso del Programa INNOVACCIÓN."}
+            </div>
+          </div>
+        )}
+ 
+        {/* ── MODO: OLVIDÉ MI CONTRASEÑA (Paso 1: pedir empresa + email) ── */}
+        {mode === "forgot" && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(0,160,176,0.1)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 26, marginBottom: 12 }}>🔑</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#1A2E4A" }}>Recuperar contraseña</div>
+              <div style={{ fontSize: 13, color: "#6B7280", marginTop: 6, lineHeight: 1.5 }}>
+                Ingresa el nombre de tu empresa y el correo con el que te registraste. Te enviaremos un código de verificación.
+              </div>
+            </div>
+ 
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Nombre de la empresa</label>
+            <input value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              placeholder="Ej: Mi Empresa S.A.S." style={loginInputStyle} />
+ 
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Correo electrónico registrado</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              placeholder="correo@empresa.com" type="email" style={loginInputStyle} />
+ 
+            {error && <div style={{ background: "#FEF2F2", color: "#E53935", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 8 }}>{error}</div>}
+            {success && <div style={{ background: "#ECFDF5", color: "#059669", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 8 }}>{success}</div>}
+ 
+            <button onClick={handleSubmit} disabled={loading}
+              style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? "#6B7280" : "linear-gradient(135deg, #00A0B0, #223D5E)", color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 8 }}>
+              {loading ? "Enviando código..." : "Enviar código de verificación →"}
             </button>
-          ))}
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>Nombre de la empresa</label>
-          <input value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
-            placeholder="Ej: Mi Empresa S.A.S."
-            style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: `2px solid ${COLORS.lightGray}`, fontSize: 15, fontFamily: "'Montserrat', sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
-          {mode === "register" && (
-            <>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>Email (opcional)</label>
-              <input value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@empresa.com" type="email"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: `2px solid ${COLORS.lightGray}`, fontSize: 15, fontFamily: "'Montserrat', sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
-            </>
-          )}
-          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>Contraseña</label>
-          <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
-            placeholder="••••••••" type="password"
-            style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: `2px solid ${COLORS.lightGray}`, fontSize: 15, fontFamily: "'Montserrat', sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
-          {error && <div style={{ background: "#FEF2F2", color: COLORS.red, padding: "8px 12px", borderRadius: 8, fontSize: 13, marginTop: 8 }}>{error}</div>}
-          <button onClick={handleSubmit} disabled={loading}
-            style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? COLORS.gray : `linear-gradient(135deg, ${COLORS.cyan}, ${COLORS.lightNavy})`, color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 16 }}>
-            {loading ? "Conectando..." : mode === "login" ? "Entrar →" : "Registrar empresa →"}
-          </button>
-        </div>
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: COLORS.gray }}>
-          {mode === "login" ? "Tu progreso se guarda automáticamente en la nube." : "Registra tu empresa para guardar el progreso del Programa INNOVACCIÓN."}
-        </div>
+ 
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button onClick={() => switchMode("login")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 13, color: "#6B7280", fontWeight: 500, padding: 0 }}>
+                ← Volver a iniciar sesión
+              </button>
+            </div>
+          </div>
+        )}
+ 
+        {/* ── MODO: NUEVA CONTRASEÑA (Paso 2: código + nueva contraseña) ── */}
+        {mode === "newpass" && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(52,199,89,0.1)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 26, marginBottom: 12 }}>📧</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#1A2E4A" }}>Ingresa el código</div>
+              <div style={{ fontSize: 13, color: "#6B7280", marginTop: 6, lineHeight: 1.5 }}>
+                Revisa tu correo electrónico (también la carpeta de spam). Ingresa el código de 6 dígitos y crea tu nueva contraseña.
+              </div>
+            </div>
+ 
+            {success && <div style={{ background: "#ECFDF5", color: "#059669", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16, textAlign: "center", fontWeight: 600 }}>{success}</div>}
+ 
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Código de verificación</label>
+            <input value={code} onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); }}
+              placeholder="000000" maxLength={6}
+              style={{ ...loginInputStyle, textAlign: "center", fontSize: 28, fontWeight: 800, letterSpacing: 8, padding: "16px" }}
+              onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+ 
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Nueva contraseña</label>
+            <input value={newPassword} onChange={e => setNewPassword(e.target.value)}
+              placeholder="Mínimo 4 caracteres" type="password" style={loginInputStyle} />
+ 
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Confirmar nueva contraseña</label>
+            <input value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+              placeholder="Repite la contraseña" type="password" style={loginInputStyle}
+              onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+ 
+            {error && <div style={{ background: "#FEF2F2", color: "#E53935", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 8 }}>{error}</div>}
+ 
+            <button onClick={handleSubmit} disabled={loading}
+              style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? "#6B7280" : "linear-gradient(135deg, #34C759, #1A2E4A)", color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 8 }}>
+              {loading ? "Verificando..." : "Cambiar contraseña →"}
+            </button>
+ 
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+              <button onClick={() => switchMode("forgot")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 12, color: "#00A0B0", fontWeight: 500, padding: 0 }}>
+                Reenviar código
+              </button>
+              <button onClick={() => switchMode("login")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 12, color: "#6B7280", fontWeight: 500, padding: 0 }}>
+                Volver al inicio
+              </button>
+            </div>
+          </div>
+        )}
+ 
       </div>
     </div>
   );
 }
-
+ 
 // ============================================================
 // APP WRAPPER
 // ============================================================
