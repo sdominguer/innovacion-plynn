@@ -9,8 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body, #root { min-height: 100%; width: 100%; }
-    body { overflow-x: hidden; }
+    html, body, #root { height: 100%; width: 100%; overflow: hidden; }
     body { font-family: 'Montserrat', sans-serif; }
     input:focus, textarea:focus, select:focus { border-color: #0FBAE3 !important; outline: none; }
     button:hover { opacity: 0.9; }
@@ -30,6 +29,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" onerror="console.warn('html2pdf no disponible, usando fallback')"></script>
 
   <script type="text/babel" data-type="module">
 const { useState, useEffect, useCallback, useRef } = React;
@@ -37,15 +37,12 @@ const { useState, useEffect, useCallback, useRef } = React;
 // ============================================================
 // CONFIGURACIÓN — Pega aquí la URL de tu Google Apps Script
 // ============================================================
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQBpOYeW350_MXnVpnb6NPD_NGimOBC0oX7YzIspdwH4IUl_zSvFxVlbyVnpbfv2fz/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvHvdG6J6ekLxrFS4ugpaxsx6BXgGCmniGcfN-NI449RZ8wDKvhX-fL2qXgRMdVbeP/exec";
 
 async function apiCall(action, params = {}) {
   const USE_LOCAL = !APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("TU_URL");
- 
-  // ── Acciones que SIEMPRE van al backend si está configurado ──
   const BACKEND_ACTIONS = ["login", "register", "save", "load", "resetPassword", "verifyCode", "updatePassword"];
  
-  // Si hay backend configurado, intentar primero con el backend
   if (!USE_LOCAL && BACKEND_ACTIONS.includes(action)) {
     try {
       let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
@@ -55,24 +52,20 @@ async function apiCall(action, params = {}) {
       }
       const res = await fetch(url);
       const result = await res.json();
-      // Para "save", si el backend responde, también guardar local como respaldo
       if (action === "save" && result.success) {
         try {
           const toSave = params.datos || {};
           localStorage.setItem(STORAGE_KEY + "_" + params.empresa, JSON.stringify(toSave));
-        } catch (e) { /* respaldo local falló, no pasa nada */ }
+        } catch (e) {}
       }
       return result;
     } catch (e) {
-      // Si el backend falla, caer al modo local para login/register/load/save
       if (action === "resetPassword" || action === "verifyCode") {
-        return { success: false, error: "No se pudo conectar al servidor. Verifica tu conexión a internet e intenta de nuevo." };
+        return { success: false, error: "No se pudo conectar al servidor. Verifica tu conexión." };
       }
-      // Para las demás acciones, continuar con localStorage como fallback
     }
   }
  
-  // ── MODO LOCAL (fallback sin backend) ──
   if (action === "login") {
     const stored = localStorage.getItem("user_" + params.empresa);
     if (!stored) return { success: false, error: "Empresa no registrada. Regístrate primero." };
@@ -80,35 +73,27 @@ async function apiCall(action, params = {}) {
     if (u.password !== params.password) return { success: false, error: "Contraseña incorrecta." };
     return { success: true, empresa: params.empresa };
   }
- 
   if (action === "register") {
     const existing = localStorage.getItem("user_" + params.empresa);
     if (existing) return { success: false, error: "Esta empresa ya está registrada. Inicia sesión." };
     localStorage.setItem("user_" + params.empresa, JSON.stringify({ password: params.password, email: params.email || "" }));
     return { success: true };
   }
- 
   if (action === "load") {
     const raw = localStorage.getItem(STORAGE_KEY + "_" + params.empresa);
     if (raw) return { success: true, datos: JSON.parse(raw) };
     return { success: true, datos: {} };
   }
- 
-  if (action === "save") {
-    return { success: true };
-  }
- 
+  if (action === "save") { return { success: true }; }
   if (action === "resetPassword") {
-    return { success: false, error: "La recuperación de contraseña requiere conexión al servidor. Verifica tu conexión." };
+    return { success: false, error: "La recuperación de contraseña requiere conexión al servidor." };
   }
- 
   if (action === "verifyCode") {
-    return { success: false, error: "La verificación del código requiere conexión al servidor. Verifica tu conexión." };
+    return { success: false, error: "La verificación del código requiere conexión al servidor." };
   }
- 
   return { success: true };
 }
-    
+
 // ============================================================
 // PLANTILLA DIGITAL INNOVACCIÓN 2026 — PLYNN
 // ============================================================
@@ -134,6 +119,7 @@ const DEFAULT_DATA = {
   empresa: { nombre: "", sector: "", empleados: "", productos: "", logo: "" },
   comite: [{ departamento: "", nombre: "" }],
   liderInnovacion: "",
+  organigrama: "", organigramaImg: "",
   acta: {
     fecha: "", hora: "", lugar: "", empresa: "",
     asistentes: [{ nombre: "", cargo: "" }],
@@ -153,6 +139,7 @@ const DEFAULT_DATA = {
     { tipo: "Innovación Modelo de negocio", porcentaje: "" },
   ],
   objetivosEstrategicos: "",
+  objetivosInnovacion: "",
   estrategiaInnovacion: "",
   recursosEstrategia: "",
   retosInternos: [],
@@ -169,19 +156,24 @@ const DEFAULT_DATA = {
   formatoReto: { nombre: "", fecha: "", nombreReto: "", explicacion: "", tipo: "problema" },
   fichaRetoAbierto: "",
   videoRetoAbierto: "",
+  // Ideas: 4 retos con sus propias carteleras
+  retosParaIdeas: [{ reto: "" }, { reto: "" }, { reto: "" }, { reto: "" }],
+  ideasPorReto: [[], [], [], []],
   ideas: [],
   formatoIdea: { reto: "", nombre: "", fecha: "", nombreIdea: "", explicacion: "", tipo: "problema" },
   ideasEvaluadas: [
-    { nombre: "", estrategico: 3, factible: 3 },
-    { nombre: "", estrategico: 3, factible: 3 },
-    { nombre: "", estrategico: 3, factible: 3 },
-    { nombre: "", estrategico: 3, factible: 3 },
+    { nombre: "", estrategico: 3, factible: 3, tipo: "problema" },
+    { nombre: "", estrategico: 3, factible: 3, tipo: "problema" },
+    { nombre: "", estrategico: 3, factible: 3, tipo: "problema" },
+    { nombre: "", estrategico: 3, factible: 3, tipo: "problema" },
   ],
   ideaContinua: "",
+  retoDeLaIdea: "",
   ideasProspeccion: [],
   proyectos: [{ nombre: "", calificacion: "" }],
   dimensionesProyecto: Array(16).fill(3),
-  pmv: { reto: "", idea: "", mercado: "", funcionalidades: "", evidencias: "" },
+  pmv: { reto: "", idea: "", mercado: "", funcionalidades: "", evidenciasArchivo: "", evidencias: "" },
+  validacionPMV: { preguntas: Array(10).fill(""), linkResultados: "", conclusiones: "", decision: "avanzar" },
   conclusionesPMV: "",
   decisionPMV: "avanzar",
   linkValidacionPMV: "",
@@ -193,9 +185,13 @@ const DEFAULT_DATA = {
     boletin: "",
     difusion: "",
   },
+  propiedadIndustrial: [{ pmv: "", proteger: "no", tipo: "" }],
   planDifusion: "",
   planExplotacion: "",
   programaCultura: "",
+  descripcionCultura: "",
+  gestionConocimiento: { linkPYLAR: "" },
+  capacidades: { linkResultado: "" },
   indicadores: [{ nombre: "", objetivo: "", formula: "", fuente: "", meta: "", periodicidad: "", fecha: "" }],
   currentTaller: 0,
   currentActivity: 0,
@@ -225,7 +221,7 @@ const TALLERES = [
   },
   {
     id: 2, titulo: "Canvas y Focos", icon: "🎯", color: COLORS.yellow,
-    intro: "Vamos a analizar el modelo de negocio de tu empresa usando el Business Model Canvas. Con base en este análisis, definirás los focos de innovación: las áreas donde se concentrarán los recursos de innovación.",
+    intro: "Vamos a analizar el modelo de negocio de tu empresa usando el Business Model Canvas. Con base en este análisis, definirás los focos de innovación.",
     actividades: [
       { id: "a5", titulo: "Canvas del Negocio", desc: "Realiza el Business Model Canvas." },
       { id: "a6", titulo: "Focos de Innovación", desc: "Define dónde focalizar la innovación." },
@@ -233,27 +229,26 @@ const TALLERES = [
   },
   {
     id: 3, titulo: "Estrategia de Innovación", icon: "🧭", color: COLORS.green,
-    intro: "Es hora de definir los objetivos y la estrategia de innovación de tu empresa. Recuerda que la estrategia de innovación va ligada a la estrategia empresarial. Puedes apoyarte con el asistente PYLAR de creación de la estrategia.",
+    intro: "Es hora de definir los objetivos y la estrategia de innovación de tu empresa, ligados a la estrategia empresarial.",
     actividades: [
       { id: "a7-8", titulo: "Objetivos y Estrategia", desc: "Define objetivos y estrategia de innovación." },
     ]
   },
   {
     id: 4, titulo: "Taller de Retos", icon: "⚡", color: COLORS.red,
-    intro: "En este taller identificarás todos los retos de tu empresa (problemas, necesidades y oportunidades), los evaluarás y priorizarás. Elegirás un reto de innovación cerrada para trabajar internamente y uno de innovación abierta para publicar en la plataforma de PLYNN.",
+    intro: "En este taller identificarás todos los retos de tu empresa, los evaluarás y priorizarás. Elegirás un reto de innovación cerrada y uno de innovación abierta.",
     actividades: [
       { id: "a9", titulo: "Identificar Retos", desc: "Cartelera para identificar retos." },
       { id: "a10", titulo: "Evaluar Retos", desc: "Evalúa 4 retos en la matriz estratégico-factible." },
-      { id: "a11", titulo: "Reto de Innovación Cerrada", desc: "Elige el reto de innovación cerrada." },
-      { id: "a12", titulo: "Formato de Retos", desc: "Diligencia el formato del reto." },
+      { id: "a12", titulo: "Formato de Retos", desc: "Diligencia el formato del reto cerrado." },
       { id: "a13-15", titulo: "Reto de Innovación Abierta", desc: "Elige y publica el reto abierto." },
     ]
   },
   {
     id: 5, titulo: "Taller de Ideas", icon: "💡", color: COLORS.yellow,
-    intro: "¡Es momento de ser creativos! Vas a generar ideas innovadoras para los retos priorizados, diligenciar el formato de ideas, evaluarlas en la matriz estratégico-factible y elegir la idea ganadora que continuará en el proceso.",
+    intro: "¡Es momento de ser creativos! Genera ideas innovadoras para los retos priorizados, evalúalas y elige la ganadora.",
     actividades: [
-      { id: "a16", titulo: "Generar Ideas", desc: "Cartelera de ideas innovadoras." },
+      { id: "a16", titulo: "Generar Ideas", desc: "Carteleras de ideas por reto." },
       { id: "a17", titulo: "Formato de Ideas", desc: "Diligencia el formato de la idea." },
       { id: "a18", titulo: "Evaluar Ideas", desc: "Evalúa las ideas en la matriz." },
       { id: "a19", titulo: "Idea que Continúa", desc: "Elige la idea ganadora." },
@@ -261,30 +256,63 @@ const TALLERES = [
   },
   {
     id: 6, titulo: "Portafolio y PMV", icon: "🚀", color: COLORS.lightNavy,
-    intro: "Trabajaremos con el modelo Stage Gate del SGi de PLYNN. Pasarás las ideas por la Fase 1 (Prospección), formularás proyectos en el Portafolio de Proyectos, y construirás y validarás el Producto Mínimo Viable (PMV).",
+    intro: "Trabajaremos con el Stage Gate del SGi de PLYNN. Pasarás ideas por Prospección, formularás proyectos y construirás y validarás el PMV.",
     actividades: [
-      { id: "a20-22", titulo: "Fase 1: Prospección", desc: "Ideas en prospección y decisión." },
-      { id: "a23-24", titulo: "Portafolio de Proyectos", desc: "Formula y prioriza proyectos de innovación." },
+      { id: "a20-22", titulo: "Prospección de Ideas", desc: "Ideas en prospección y decisión." },
+      { id: "a23-24", titulo: "Portafolio de Proyectos", desc: "Formula y prioriza proyectos." },
       { id: "a26", titulo: "Construir el PMV", desc: "Define y construye el PMV." },
-      { id: "a27-28", titulo: "Validar el PMV", desc: "Valida y concluye sobre el PMV." },
+      { id: "a27-28", titulo: "Validar el PMV", desc: "Valida y decide sobre el PMV." },
     ]
   },
   {
     id: 7, titulo: "Vigilancia Tecnológica", icon: "🔍", color: COLORS.cyan,
-    intro: "Realizarás una Vigilancia Tecnológica usando el asistente PYLAR. Definirás qué vigilar, harás la búsqueda, crearás un informe, diseñarás un boletín y lo difundirás en tu empresa.",
+    intro: "Realizarás una Vigilancia Tecnológica usando el asistente PYLAR: diagnóstico, informe, boletín y difusión.",
     actividades: [
       { id: "a29", titulo: "Diagnóstico VT", desc: "Define qué vigilar." },
-      { id: "a30-31", titulo: "Búsqueda e Informe", desc: "Realiza la búsqueda y el informe." },
-      { id: "a32-33", titulo: "Boletín y Difusión", desc: "Crea y difunde el boletín." },
+      { id: "a30-31", titulo: "Informe de VT", desc: "Link al informe de PYLAR." },
+      { id: "a32-33", titulo: "Boletín y Difusión", desc: "Boletín y a quién se difunde." },
     ]
   },
   {
-    id: 8, titulo: "Cultura e Indicadores", icon: "📊", color: COLORS.navy,
-    intro: "En el último taller definirás el plan de difusión y explotación de resultados, crearás el programa de cultura de innovación y establecerás indicadores para medir el desempeño de la innovación en tu empresa.",
+    id: 8, titulo: "Propiedad Industrial", icon: "🔒", color: "#7B1FA2",
+    intro: "Definirás si el PMV desarrollado será protegido mediante alguna figura de propiedad industrial.",
     actividades: [
-      { id: "a34-35", titulo: "Plan de Difusión y Explotación", desc: "Plan de difusión y explotación de resultados." },
-      { id: "a36", titulo: "Cultura de Innovación", desc: "Programa de cultura de innovación." },
-      { id: "a37", titulo: "Indicadores", desc: "Define indicadores de innovación." },
+      { id: "t8a1", titulo: "Protección del PMV", desc: "¿Proteger o no el PMV?" },
+    ]
+  },
+  {
+    id: 9, titulo: "Difusión y Explotación", icon: "📣", color: COLORS.green,
+    intro: "Definirás el plan de difusión y explotación de los resultados del proyecto de innovación.",
+    actividades: [
+      { id: "a34-35", titulo: "Plan de Difusión y Explotación", desc: "Plan de difusión y explotación." },
+    ]
+  },
+  {
+    id: 10, titulo: "Cultura de Innovación", icon: "🌱", color: "#388E3C",
+    intro: "Crearás el programa de cultura de innovación para tu empresa.",
+    actividades: [
+      { id: "a36", titulo: "Programa de Cultura", desc: "Programa de cultura de innovación." },
+    ]
+  },
+  {
+    id: 11, titulo: "Gestión del Conocimiento", icon: "🧠", color: "#1565C0",
+    intro: "Gestionarás el conocimiento generado en el proceso de innovación usando la herramienta PYLAR.",
+    actividades: [
+      { id: "t11a1", titulo: "Gestión del Conocimiento", desc: "Herramienta PYLAR de gestión." },
+    ]
+  },
+  {
+    id: 12, titulo: "Capacidades de Innovación", icon: "📈", color: "#00796B",
+    intro: "Medirás las capacidades de innovación de tu empresa usando la herramienta PYLAR.",
+    actividades: [
+      { id: "t12a1", titulo: "Medir Capacidades", desc: "Diagnóstico de capacidades PYLAR." },
+    ]
+  },
+  {
+    id: 13, titulo: "Indicadores de Innovación", icon: "📊", color: COLORS.navy,
+    intro: "Establecerás indicadores para medir el desempeño de la innovación en tu empresa.",
+    actividades: [
+      { id: "a37", titulo: "Indicadores", desc: "Define los indicadores de innovación." },
     ]
   },
 ];
@@ -333,47 +361,28 @@ function PostIt({ text, tipo = "necesidad", onDelete, onChange, editable = true 
   );
 }
 
-function MatrizPriorizacion({ items, onChange, labelA = "Reto" }) {
+function MatrizPriorizacion({ items, onChange, labelA = "Reto", cuadrantes }) {
+  // cuadrantes: array of {label, subtitulo, bg, filter}
+  const defaultCuadrantes = [
+    { label: "Innovación Cerrada", sub: "Alto Estratégico + Alto Factible", bg: "#E8F5E9", filter: (e,f) => e && f },
+    { label: "Intraemprendimiento", sub: "Bajo Estratégico + Alto Factible", bg: "#FFF3E0", filter: (e,f) => !e && f },
+    { label: "Innovación Abierta", sub: "Alto Estratégico + Bajo Factible", bg: "#E3F2FD", filter: (e,f) => e && !f },
+    { label: "Descartados", sub: "Bajo Estratégico + Bajo Factible", bg: "#FFEBEE", filter: (e,f) => !e && !f },
+  ];
+  const qs = cuadrantes || defaultCuadrantes;
   return (
     <div style={{ padding: 16 }}>
-      <div style={{
-        background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`,
-        borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13,
-        color: COLORS.navy, lineHeight: 1.6,
-      }}>
-        📌 <strong>Instrucción:</strong> Para hacer esta priorización usa la <strong>herramienta de priorización de {labelA === "Reto" ? "retos" : "ideas"} de PLYNN</strong> disponible en nuestra plataforma. Con los resultados que te entregue la herramienta, cada {labelA === "Reto" ? "reto" : "idea"} tendrá una nota en <strong>Estratégico</strong> y en <strong>Factible</strong>. Ingresa esas notas aquí para que la plantilla los ubique en la matriz.
+      <div style={{ background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`, borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: COLORS.navy, lineHeight: 1.6 }}>
+        📌 <strong>Instrucción:</strong> Usa la <strong>herramienta de priorización de {labelA === "Reto" ? "retos" : "ideas"} de PLYNN</strong>. Con los resultados, ingresa la nota de <strong>Estratégico</strong> y <strong>Factible</strong> de cada {labelA === "Reto" ? "reto" : "idea"}.
       </div>
-      <div style={{
-        display: "grid", gridTemplateColumns: "1fr 1fr",
-        gap: 2, borderRadius: 12, overflow: "hidden", maxWidth: 600, margin: "0 auto",
-        border: `2px solid ${COLORS.navy}`,
-      }}>
-        {["Innovación Cerrada", "Intraemprendimiento", "Innovación Abierta", "Descartados"].map((label, qi) => (
-          <div key={qi} style={{
-            background: qi === 0 ? "#E8F5E9" : qi === 1 ? "#FFF3E0" : qi === 2 ? "#E3F2FD" : "#FFEBEE",
-            padding: 16, minHeight: 100,
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: COLORS.navy }}>{label}</div>
-            <div style={{ fontSize: 12, color: COLORS.gray }}>
-              {qi === 0 ? "Alto Estratégico + Alto Factible" :
-               qi === 1 ? "Bajo Estratégico + Alto Factible" :
-               qi === 2 ? "Alto Estratégico + Bajo Factible" :
-               "Bajo Estratégico + Bajo Factible"}
-            </div>
-            <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {items.filter(it => {
-                const e = it.estrategico >= 3;
-                const f = it.factible >= 3;
-                if (qi === 0) return e && f;
-                if (qi === 1) return !e && f;
-                if (qi === 2) return e && !f;
-                return !e && !f;
-              }).map((it, i) => (
-                <span key={i} style={{
-                  background: it.tipo === "problema" ? "#FF6B6B" : it.tipo === "oportunidad" ? "#6BCB77" : "#FFD93D",
-                  padding: "2px 8px", borderRadius: 4, fontSize: 12,
-                  color: it.tipo === "necesidad" ? "#333" : "#fff",
-                }}>{it.nombre || `${labelA} ${i + 1}`}</span>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, borderRadius: 12, overflow: "hidden", maxWidth: 620, margin: "0 auto", border: `2px solid ${COLORS.navy}` }}>
+        {qs.map((q, qi) => (
+          <div key={qi} style={{ background: q.bg, padding: 16, minHeight: 100 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: COLORS.navy }}>{q.label}</div>
+            <div style={{ fontSize: 11, color: COLORS.gray, marginBottom: 8 }}>{q.sub}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {items.filter(it => q.filter(it.estrategico >= 3, it.factible >= 3)).map((it, i) => (
+                <span key={i} style={{ background: it.tipo === "problema" ? "#FF6B6B" : it.tipo === "oportunidad" ? "#6BCB77" : "#FFD93D", padding: "2px 8px", borderRadius: 4, fontSize: 12, color: it.tipo === "necesidad" ? "#333" : "#fff" }}>{it.nombre || `${labelA} ${i + 1}`}</span>
               ))}
             </div>
           </div>
@@ -392,30 +401,20 @@ function MatrizPriorizacion({ items, onChange, labelA = "Reto" }) {
           <tbody>
             {items.map((item, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${COLORS.lightGray}` }}>
-                <td style={{ padding: 8 }}>
-                  <input value={item.nombre} onChange={e => {
-                    const n = [...items]; n[i] = { ...n[i], nombre: e.target.value }; onChange(n);
-                  }} placeholder={`${labelA} ${i + 1}`} style={inputStyle} />
-                </td>
+                <td style={{ padding: 8 }}><input value={item.nombre} onChange={e => { const n = [...items]; n[i] = { ...n[i], nombre: e.target.value }; onChange(n); }} placeholder={`${labelA} ${i + 1}`} style={inputStyle} /></td>
                 <td style={{ padding: 8, textAlign: "center" }}>
-                  <select value={item.tipo || "necesidad"} onChange={e => {
-                    const n = [...items]; n[i] = { ...n[i], tipo: e.target.value }; onChange(n);
-                  }} style={{ ...inputStyle, width: "auto", textAlign: "center" }}>
+                  <select value={item.tipo || "necesidad"} onChange={e => { const n = [...items]; n[i] = { ...n[i], tipo: e.target.value }; onChange(n); }} style={{ ...inputStyle, width: "auto" }}>
                     <option value="problema">🔴 Problema</option>
                     <option value="necesidad">🟡 Necesidad</option>
                     <option value="oportunidad">🟢 Oportunidad</option>
                   </select>
                 </td>
                 <td style={{ padding: 8, textAlign: "center" }}>
-                  <input type="range" min={1} max={5} value={item.estrategico}
-                    onChange={e => { const n = [...items]; n[i] = { ...n[i], estrategico: +e.target.value }; onChange(n); }}
-                    style={{ width: 80 }} />
+                  <input type="range" min={1} max={5} value={item.estrategico} onChange={e => { const n = [...items]; n[i] = { ...n[i], estrategico: +e.target.value }; onChange(n); }} style={{ width: 80 }} />
                   <span style={{ marginLeft: 8, fontWeight: 700 }}>{item.estrategico}</span>
                 </td>
                 <td style={{ padding: 8, textAlign: "center" }}>
-                  <input type="range" min={1} max={5} value={item.factible}
-                    onChange={e => { const n = [...items]; n[i] = { ...n[i], factible: +e.target.value }; onChange(n); }}
-                    style={{ width: 80 }} />
+                  <input type="range" min={1} max={5} value={item.factible} onChange={e => { const n = [...items]; n[i] = { ...n[i], factible: +e.target.value }; onChange(n); }} style={{ width: 80 }} />
                   <span style={{ marginLeft: 8, fontWeight: 700 }}>{item.factible}</span>
                 </td>
               </tr>
@@ -426,6 +425,7 @@ function MatrizPriorizacion({ items, onChange, labelA = "Reto" }) {
     </div>
   );
 }
+
 
 function StageGateVisual() {
   const faseNames = [
@@ -624,6 +624,28 @@ function RetoColumn({ title, subtitle, retos, onAdd, onUpdate, onDelete }) {
   );
 }
 
+// ─── IDEA POSTIT (same pattern) ─────────────────────────────
+function IdeaPostIt({ text, tipo, onTextChange, onTipoChange, onDelete }) {
+  const [local, setLocal] = useState(text);
+  const t = useRef(null);
+  const rot = useRef(Math.random() * 4 - 2).current;
+  const cols = { problema: { bg: "#FF6B6B", txt: "#fff" }, necesidad: { bg: "#FFD93D", txt: "#333" }, oportunidad: { bg: "#6BCB77", txt: "#fff" } };
+  const c = cols[tipo] || cols.necesidad;
+  const handle = v => { setLocal(v); clearTimeout(t.current); t.current = setTimeout(() => onTextChange(v), 350); };
+  return (
+    <div style={{ position: "relative", marginTop: 10 }}>
+      <select value={tipo} onChange={e => onTipoChange(e.target.value)} style={{ position: "absolute", top: -8, left: 2, fontSize: 10, border: "none", background: "transparent", zIndex: 2, cursor: "pointer" }}>
+        <option value="problema">🔴</option><option value="necesidad">🟡</option><option value="oportunidad">🟢</option>
+      </select>
+      <div style={{ background: c.bg, color: c.txt, padding: "10px 12px", borderRadius: 4, width: 140, minHeight: 90, position: "relative", boxShadow: "2px 3px 8px rgba(0,0,0,0.15)", fontFamily: "'Caveat', cursive", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", transform: `rotate(${rot}deg)` }}>
+        <textarea value={local} onChange={e => handle(e.target.value)} placeholder="Escribe aquí..." style={{ background: "transparent", border: "none", color: c.txt, width: "100%", minHeight: 60, resize: "none", fontFamily: "inherit", fontSize: "inherit", textAlign: "center", outline: "none", cursor: "text", caretColor: c.txt }} />
+        <button onClick={onDelete} style={{ position: "absolute", top: 2, right: 4, background: "none", border: "none", cursor: "pointer", fontSize: 14, opacity: 0.6, color: c.txt }}>✕</button>
+      </div>
+    </div>
+  );
+}
+
+
 function RenderActivity({ activityId, data, setData }) {
   const u = (field, val) => setData(prev => ({ ...prev, [field]: val }));
   const uNested = (field, subfield, val) => setData(prev => ({
@@ -748,13 +770,34 @@ function RenderActivity({ activityId, data, setData }) {
     case "a2":
       return (
         <div>
-          <div style={tipStyle}>Estudia y revisa el organigrama actual de la empresa y jerarquiza la innovación. Si la empresa no tiene organigrama, debes crearlo.</div>
+          <div style={tipStyle}>Sube la imagen del organigrama donde se vea la jerarquización de la innovación. Si no tienes uno aún, puedes crearlo en Canva o Draw.io.</div>
           <div style={cardStyle}>
             <div style={sectionTitleStyle}>Organigrama con Innovación Jerarquizada</div>
-            <textarea style={{ ...textareaStyle, minHeight: 150 }}
+            <div style={{ background: COLORS.cream, borderRadius: 10, padding: 16, border: `2px dashed ${COLORS.cyan}`, textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 8 }}>
+                📎 Sube aquí la imagen de tu organigrama donde se vea la jerarquización de la innovación
+              </div>
+              {data.organigramaImg ? (
+                <div>
+                  <img src={data.organigramaImg} alt="Organigrama" style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 8, marginBottom: 8 }} />
+                  <br/>
+                  <button onClick={() => u("organigramaImg", "")} style={{ ...btnStyle(COLORS.red), padding: "4px 12px", fontSize: 12 }}>Quitar imagen</button>
+                </div>
+              ) : (
+                <label style={{ ...btnStyle(COLORS.cyan), display: "inline-block", cursor: "pointer", padding: "10px 24px" }}>
+                  🖼️ Subir imagen del organigrama
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
+                    const f = e.target.files[0]; if (!f) return;
+                    const r = new FileReader(); r.onload = ev => u("organigramaImg", ev.target.result); r.readAsDataURL(f);
+                  }} />
+                </label>
+              )}
+            </div>
+            <label style={labelStyle}>Descripción (opcional)</label>
+            <textarea style={{ ...textareaStyle, minHeight: 80 }}
               value={data.organigrama || ""}
               onChange={e => u("organigrama", e.target.value)}
-              placeholder="Describe cómo se jerarquiza la innovación en el organigrama de tu empresa. Puedes pegar un link a una imagen del organigrama (Canva, Draw.io, etc.)" />
+              placeholder="Describe brevemente cómo está jerarquizada la innovación..." />
           </div>
         </div>
       );
@@ -1015,8 +1058,16 @@ function RenderActivity({ activityId, data, setData }) {
 
                 <div style={{
                   padding: "16px 28px", borderTop: `1px solid ${COLORS.lightGray}`,
-                  display: "flex", justifyContent: "center", background: COLORS.cream,
+                  display: "flex", justifyContent: "center", gap: 12, background: COLORS.cream,
                 }}>
+                  <button onClick={() => {
+                    const w = window.open("","_blank");
+                    w.document.write(`<html><head><meta charset="UTF-8"><title>Acta Comité</title><style>body{font-family:Arial,sans-serif;max-width:750px;margin:40px auto;padding:32px;color:#222;line-height:1.7;}table{width:100%;border-collapse:collapse;}td,th{padding:8px;border:1px solid #ccc;}th{background:#1A2E4A;color:#fff;}@media print{body{margin:0;padding:20px;}}</style></head><body>`);
+                    w.document.write(document.querySelector('[data-acta-content]') ? document.querySelector('[data-acta-content]').innerHTML : '<p>Acta generada</p>');
+                    w.document.write('</body></html>');
+                    w.document.close();
+                    setTimeout(() => w.print(), 600);
+                  }} style={{ ...btnStyle(COLORS.cyan), padding: "10px 24px" }}>📥 Descargar PDF</button>
                   <button onClick={() => setShowActa(false)} style={{ ...btnStyle(COLORS.gray), padding: "10px 24px" }}>Cerrar</button>
                 </div>
               </div>
@@ -1242,16 +1293,25 @@ function RenderActivity({ activityId, data, setData }) {
       );
     }
 
-    // CORRECCIÓN #6: Evaluación de retos — instrucción herramienta PLYNN
-    case "a10":
-      return (
-        <div>
-          <InfoBox title="📖 Cómo evaluar los retos">
-            <p style={{ marginTop: 8 }}>Elige 4 retos de los encontrados en el taller para ser evaluados y priorizados.</p>
-          </InfoBox>
-          <MatrizPriorizacion items={data.retosEvaluados} onChange={v => u("retosEvaluados", v)} labelA="Reto" />
-        </div>
-      );
+    // ── T4A2: EVALUAR RETOS ────────────────────────────────────
+  case "a10": {
+    // Cuadrantes corregidos según solicitud
+    const retoCuadrantes = [
+      { label: "Innovación Cerrada", sub: "Alto Estratégico + Alto Factible", bg: "#E8F5E9", filter: (e,f) => e && f },
+      { label: "Intraemprendimiento", sub: "Bajo Estratégico + Alto Factible", bg: "#FFF3E0", filter: (e,f) => !e && f },
+      { label: "Innovación Abierta", sub: "Alto Estratégico + Bajo Factible", bg: "#E3F2FD", filter: (e,f) => e && !f },
+      { label: "Descartados", sub: "Bajo Estratégico + Bajo Factible", bg: "#FFEBEE", filter: (e,f) => !e && !f },
+    ];
+    return (
+      <div>
+        <InfoBox title="📖 Cómo evaluar los retos">
+          <p style={{ marginTop: 8 }}>Elige 4 retos para evaluar. Usa la <strong>herramienta de priorización de retos de PLYNN</strong> e ingresa las notas aquí.</p>
+        </InfoBox>
+        <MatrizPriorizacion items={data.retosEvaluados} onChange={v => u("retosEvaluados",v)} labelA="Reto" cuadrantes={retoCuadrantes} />
+      </div>
+    );
+  }
+
 
     case "a11":
       return (
@@ -1325,53 +1385,50 @@ function RenderActivity({ activityId, data, setData }) {
       );
 
     // ---- TALLER 5: IDEAS ----
-    // CORRECCIÓN #7: Cartelera de ideas debe mostrar el reto al que se le generan ideas
-    case "a16": {
-      const addIdea = () => u("ideas", [...data.ideas, { text: "", tipo: "necesidad", reto: data.retoCerrado || "" }]);
-      return (
-        <div>
-          <InfoBox title="📖 Para tener en cuenta sobre las ideas">
-            <p style={{ marginTop: 8 }}>Recuerda que las ideas siempre se generan para un reto específico. Cada idea lleva el <strong>color del reto al que le da solución</strong>.</p>
-            <p>Para priorizar las ideas usa la <strong>herramienta de priorización de ideas de PLYNN</strong> en nuestra plataforma.</p>
-          </InfoBox>
-
-          {/* CORRECCIÓN #7: Mostrar el reto al que se generan ideas */}
-          <div style={{
-            background: COLORS.navy, color: "#fff", borderRadius: 10,
-            padding: "14px 18px", marginBottom: 16,
-          }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>
-              ⚡ Reto al que le vamos a generar ideas
+    // ── T5A1: GENERAR IDEAS (4 retos con cartelera) ────────────
+  case "a16": {
+    const updateIdea = (retoIdx, ideaIdx, val) => {
+      const nipr = data.ideasPorReto.map((arr,ri) => ri===retoIdx ? arr.map((id,ii) => ii===ideaIdx ? {...id,...val} : id) : arr);
+      u("ideasPorReto", nipr);
+    };
+    const addIdea = retoIdx => {
+      const nipr = data.ideasPorReto.map((arr,ri) => ri===retoIdx ? [...arr, { id: Date.now()+Math.random(), text: "", tipo: "necesidad" }] : arr);
+      u("ideasPorReto", nipr);
+    };
+    const deleteIdea = (retoIdx, ideaIdx) => {
+      const nipr = data.ideasPorReto.map((arr,ri) => ri===retoIdx ? arr.filter((_,ii) => ii!==ideaIdx) : arr);
+      u("ideasPorReto", nipr);
+    };
+    return (
+      <div>
+        <InfoBox title="📖 Cartelera de Ideas por Reto">
+          <p style={{ marginTop: 8 }}>Cada reto tiene su propia cartelera de ideas. Las ideas llevan el color del reto al que dan solución.</p>
+        </InfoBox>
+        <div style={tipStyle}>Escribe los 4 retos priorizados y genera ideas para cada uno.</div>
+        {data.retosParaIdeas.map((r, ri) => (
+          <div key={ri} style={cardStyle}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>{ri+1}</div>
+              <input style={{ ...inputStyle, fontWeight: 700, fontSize: 15 }} value={r.reto} onChange={e => { const n=[...data.retosParaIdeas]; n[ri]={...n[ri],reto:e.target.value}; u("retosParaIdeas",n); }} placeholder={`Escribe el reto ${ri+1} aquí...`} />
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>
-              {data.retoCerrado || <span style={{ opacity: 0.5, fontStyle: "italic" }}>No has definido aún el reto de innovación cerrada. Ve al Taller 4 primero.</span>}
-            </div>
+            {r.reto && (
+              <div style={{ background: "#E8ECF5", padding: 12, borderRadius: 8, minHeight: 120, display: "flex", flexWrap: "wrap", gap: 8, alignContent: "flex-start" }}>
+                {(data.ideasPorReto[ri]||[]).map((idea, ii) => (
+                  <IdeaPostIt key={idea.id||ii} text={idea.text} tipo={idea.tipo}
+                    onTextChange={t => updateIdea(ri,ii,{text:t})}
+                    onTipoChange={t => updateIdea(ri,ii,{tipo:t})}
+                    onDelete={() => deleteIdea(ri,ii)} />
+                ))}
+                <button onClick={() => addIdea(ri)} style={{ ...btnStyle(COLORS.cyan), width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, padding: 0, alignSelf: "center" }}>+</button>
+              </div>
+            )}
+            {!r.reto && <div style={{ color: COLORS.gray, fontSize: 13, fontStyle: "italic" }}>Escribe el reto para habilitar la cartelera de ideas.</div>}
           </div>
+        ))}
+      </div>
+    );
+  }
 
-          <div style={tipStyle}>Haz clic en "+" para agregar una idea. Escribe tu idea directamente en el post-it.</div>
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Cartelera de Ideas Innovadoras</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
-              {data.ideas.map((idea, i) => (
-                <div key={i}>
-                  <PostIt text={idea.text} tipo={idea.tipo}
-                    onChange={t => { const n = [...data.ideas]; n[i] = { ...n[i], text: t }; u("ideas", n); }}
-                    onDelete={() => u("ideas", data.ideas.filter((_, j) => j !== i))} />
-                  <select value={idea.tipo}
-                    onChange={e => { const n = [...data.ideas]; n[i] = { ...n[i], tipo: e.target.value }; u("ideas", n); }}
-                    style={{ fontSize: 10, marginTop: 4, width: "100%" }}>
-                    <option value="problema">🔴 Problema</option>
-                    <option value="necesidad">🟡 Necesidad</option>
-                    <option value="oportunidad">🟢 Oportunidad</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-            <button onClick={addIdea} style={btnStyle()}>+ Agregar idea</button>
-          </div>
-        </div>
-      );
-    }
 
     case "a17":
       return (
@@ -1411,25 +1468,35 @@ function RenderActivity({ activityId, data, setData }) {
         </div>
       );
 
-    // CORRECCIÓN #8: Evaluación de ideas — instrucción herramienta PLYNN
-    case "a18":
-      return (
-        <div>
-          <div style={tipStyle}>Evalúa las ideas usando la matriz estratégico-factible.</div>
-          <MatrizPriorizacion items={data.ideasEvaluadas} onChange={v => u("ideasEvaluadas", v)} labelA="Idea" />
-        </div>
-      );
+    // ── T5A3: EVALUAR IDEAS ────────────────────────────────────
+  case "a18": {
+    // Cuadrantes corregidos para ideas
+    const ideaCuadrantes = [
+      { label: "Banco de Ideas", sub: "Alto Estratégico + Alto Factible", bg: "#E8F5E9", filter: (e,f) => e && f },
+      { label: "Ideas para Analizar", sub: "Bajo Estratégico + Alto Factible", bg: "#FFF3E0", filter: (e,f) => !e && f },
+      { label: "Ideas para Analizar", sub: "Alto Estratégico + Bajo Factible", bg: "#E3F2FD", filter: (e,f) => e && !f },
+      { label: "Descartadas", sub: "Bajo Estratégico + Bajo Factible", bg: "#FFEBEE", filter: (e,f) => !e && !f },
+    ];
+    return (
+      <div>
+        <div style={tipStyle}>Evalúa las ideas con la herramienta de priorización de ideas de PLYNN e ingresa los resultados aquí.</div>
+        <MatrizPriorizacion items={data.ideasEvaluadas} onChange={v => u("ideasEvaluadas",v)} labelA="Idea" cuadrantes={ideaCuadrantes} />
+      </div>
+    );
+  }
 
-    case "a19":
-      return (
-        <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Idea que Continúa</div>
-          <textarea style={{ ...textareaStyle, minHeight: 80, fontSize: 16 }}
-            value={data.ideaContinua}
-            onChange={e => u("ideaContinua", e.target.value)}
-            placeholder="Escribe la idea con la que ha decidido seguir trabajando tu equipo..." />
-        </div>
-      );
+
+    // ── T5A4: IDEA QUE CONTINÚA ────────────────────────────────
+  case "a19": return (
+    <div style={cardStyle}>
+      <div style={sectionTitleStyle}>Idea que Continúa</div>
+      <label style={labelStyle}>Reto que soluciona esta idea</label>
+      <input style={inputStyle} value={data.retoDeLaIdea||""} onChange={e => u("retoDeLaIdea",e.target.value)} placeholder="Escribe el reto al que le da solución..." />
+      <label style={labelStyle}>Idea ganadora con la que continúa el equipo</label>
+      <textarea style={{ ...textareaStyle, minHeight: 80, fontSize: 15 }} value={data.ideaContinua} onChange={e => u("ideaContinua",e.target.value)} placeholder="Escribe la idea ganadora..." />
+    </div>
+  );
+
 
     // ---- TALLER 6: PORTAFOLIO Y PMV ----
     case "a20-22": {
@@ -1510,220 +1577,123 @@ case "a23-24": {
       );
     }
 
-        // CORRECCIONES #10 (eliminada actividad Stage Gate), #11, #12, #13 (PMV simplificado)
-    case "a26":
-      return (
-        <div>
-          {/* CORRECCIÓN #13: Quitada la info box con la lista larga */}
-          <div style={tipStyle}>Define el PMV con sus funcionalidades mínimas para dar solución al problema, necesidad u oportunidad del mercado.</div>
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Construir el PMV</div>
-            <label style={labelStyle}>Reto</label>
-            <textarea style={textareaStyle} value={data.pmv.reto}
-              onChange={e => uNested("pmv", "reto", e.target.value)}
-              placeholder="Describe el reto (problema, necesidad u oportunidad)..." />
-            <label style={labelStyle}>Idea elegida</label>
-            <textarea style={textareaStyle} value={data.pmv.idea}
-              onChange={e => uNested("pmv", "idea", e.target.value)}
-              placeholder="Describe la idea que elegiste..." />
-
-            {/* CORRECCIÓN #11: Mercado con ejemplos */}
-            <label style={labelStyle}>Descripción del mercado</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              Ejemplos: "Empresas medianas del sector manufacturero en Colombia", "Jóvenes universitarios entre 18 y 25 años en ciudades intermedias", "Restaurantes de comida rápida con más de 5 empleados".
-            </div>
-            <textarea style={textareaStyle} value={data.pmv.mercado}
-              onChange={e => uNested("pmv", "mercado", e.target.value)}
-              placeholder="Describe el mercado al que va dirigida tu solución..." />
-
-            {/* CORRECCIÓN #12: Funcionalidades mínimas con ejemplos */}
-            <label style={labelStyle}>Funcionalidades mínimas del PMV</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic", lineHeight: 1.5 }}>
-              El PMV es la versión más básica de tu solución que te permite validar la idea con el menor esfuerzo. Ejemplos de PMV según tipo de solución:<br />
-              • <strong>Producto físico:</strong> Maqueta en cartón, plastilina, lego o materiales de bajo costo.<br />
-              • <strong>App o software:</strong> Mockup en papel, PowerPoint interactivo o prototipo en Figma.<br />
-              • <strong>Servicio:</strong> Simulación del servicio con un cliente real, guion de atención, video demostrativo.<br />
-              • <strong>Proceso:</strong> Diagrama del proceso mejorado, prueba piloto con un equipo pequeño.<br />
-              • <strong>Contenido/formación:</strong> Un módulo de muestra, infografía o sesión piloto.
-            </div>
-            <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.pmv.funcionalidades}
-              onChange={e => uNested("pmv", "funcionalidades", e.target.value)}
-              placeholder="¿Qué debe tener el PMV? Enumera sus características y funcionalidades mínimas..." />
-
-            <label style={labelStyle}>Evidencias / Fotos / Dibujos del PMV (links)</label>
-            <textarea style={textareaStyle} value={data.pmv.evidencias}
-              onChange={e => uNested("pmv", "evidencias", e.target.value)}
-              placeholder="Pega links a fotos o evidencias del PMV construido..." />
-          </div>
+        // ── T6A3: CONSTRUIR PMV ────────────────────────────────────
+  case "a26": return (
+    <div>
+      <div style={tipStyle}>Define el PMV con sus funcionalidades mínimas para dar solución al reto del mercado.</div>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Construir el PMV</div>
+        <label style={labelStyle}>Reto</label>
+        <textarea style={textareaStyle} value={data.pmv.reto} onChange={e => un("pmv","reto",e.target.value)} placeholder="Describe el reto (problema, necesidad u oportunidad)..." />
+        <label style={labelStyle}>Idea elegida</label>
+        <textarea style={textareaStyle} value={data.pmv.idea} onChange={e => un("pmv","idea",e.target.value)} placeholder="Describe la idea que elegiste..." />
+        <label style={labelStyle}>Descripción del mercado</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>Ejemplos: "Empresas medianas del sector manufacturero en Colombia", "Jóvenes universitarios entre 18 y 25 años".</div>
+        <textarea style={textareaStyle} value={data.pmv.mercado} onChange={e => un("pmv","mercado",e.target.value)} placeholder="Describe el mercado al que va dirigida tu solución..." />
+        <label style={labelStyle}>Funcionalidades mínimas del PMV</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic", lineHeight: 1.5 }}>
+          Ejemplos según tipo: <strong>Físico:</strong> maqueta en cartón/plastilina. <strong>App:</strong> mockup en papel o Figma. <strong>Servicio:</strong> simulación con cliente real. <strong>Proceso:</strong> diagrama del proceso mejorado.
         </div>
-      );
+        <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.pmv.funcionalidades} onChange={e => un("pmv","funcionalidades",e.target.value)} placeholder="Enumera las características y funcionalidades mínimas..." />
+        <label style={labelStyle}>Evidencias del PMV — sube aquí el archivo</label>
+        <div style={{ background: "#f5f7fa", borderRadius: 8, padding: 12, border: `2px dashed ${COLORS.cyan}`, textAlign: "center", marginTop: 4 }}>
+          {data.pmv.evidenciasArchivo ? (
+            <div>
+              <img src={data.pmv.evidenciasArchivo} alt="Evidencia PMV" style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8, marginBottom: 8 }} />
+              <br/><button onClick={() => un("pmv","evidenciasArchivo","")} style={{ ...btnStyle(COLORS.red), padding: "4px 12px", fontSize: 12 }}>Quitar archivo</button>
+            </div>
+          ) : (
+            <label style={{ ...btnStyle(COLORS.cyan), display: "inline-block", cursor: "pointer", padding: "10px 24px" }}>
+              📎 Subir archivo con evidencias del PMV
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>un("pmv","evidenciasArchivo",ev.target.result); r.readAsDataURL(f); }} />
+            </label>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
 
     // CORRECCIONES #14 y #15: Validación PMV — link en lugar de tabla, quitar tabla de indicadores
-    case "a27-28":
-      return (
-        <div>
-          <InfoBox title="📖 Instrucciones de validación del PMV">
-            <p style={{ marginTop: 8 }}>La validación del PMV consiste en probarlo con usuarios reales (empleados, clientes, etc.) y recoger sus opiniones. Puedes usar una encuesta, entrevistas, video, mockup presentado a personas, etc.</p>
-            <p>Pega el link de tu encuesta o instrumento de validación para que la herramienta lleve directamente a los resultados.</p>
-          </InfoBox>
-
-          {/* CORRECCIÓN #14: Link de validación en lugar de tabla */}
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Validación del PMV</div>
-            <label style={labelStyle}>Link de validación del PMV</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6 }}>
-              Pega aquí el link a tu encuesta (Google Forms, Typeform, etc.) o al documento con los resultados de la validación.
-            </div>
-            <input style={{ ...inputStyle, fontSize: 15 }}
-              value={data.linkValidacionPMV || ""}
-              onChange={e => u("linkValidacionPMV", e.target.value)}
-              placeholder="https://forms.google.com/..." />
-            {data.linkValidacionPMV && (
-              <div style={{ marginTop: 8 }}>
-                <a href={data.linkValidacionPMV} target="_blank" rel="noopener noreferrer"
-                  style={{ color: COLORS.cyan, fontWeight: 600, fontSize: 13 }}>
-                  🔗 Ver resultados de la validación →
-                </a>
-              </div>
-            )}
+    // ── T6A4: VALIDAR PMV ──────────────────────────────────────
+  case "a27-28": return (
+    <div>
+      <InfoBox title="📖 Instrucciones de validación">
+        <p style={{ marginTop: 8 }}>Escribe las preguntas de validación del PMV y luego pruébalo con usuarios reales. Pega el link con los resultados.</p>
+      </InfoBox>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Validación del PMV</div>
+        <label style={labelStyle}>Preguntas de validación del PMV</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 8, fontStyle: "italic" }}>Escribe hasta 10 preguntas para validar el PMV con tus adoptantes (empleados, clientes, etc.):</div>
+        {data.validacionPMV.preguntas.map((q, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ width: 24, height: 24, borderRadius: "50%", background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i+1}</span>
+            <input style={inputStyle} value={q} onChange={e => { const n=[...data.validacionPMV.preguntas]; n[i]=e.target.value; un("validacionPMV","preguntas",n); }} placeholder={`Pregunta ${i+1}...`} />
           </div>
-
-          {/* CORRECCIÓN #15: Quitada la tabla de indicadores; solo conclusiones y decisión */}
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Conclusiones de la Validación del PMV</div>
-            <textarea style={{ ...textareaStyle, minHeight: 120 }}
-              value={data.conclusionesPMV}
-              onChange={e => u("conclusionesPMV", e.target.value)}
-              placeholder="Escribe las conclusiones de la validación del PMV..." />
-            <label style={labelStyle}>Decisión del Comité</label>
-            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-              {[["avanzar", COLORS.cyan, "AVANZAR"], ["revisar", COLORS.yellow, "REVISAR"], ["parar", COLORS.red, "PARAR"]].map(([val, col, label]) => (
-                <button key={val} onClick={() => u("decisionPMV", val)}
-                  style={{ ...btnStyle(col), padding: "12px 24px", fontSize: 16, fontWeight: 800, opacity: data.decisionPMV === val ? 1 : 0.3, color: val === "revisar" ? "#333" : "#fff" }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+        ))}
+        <label style={labelStyle}>Link de resultados de la validación</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6 }}>Pega el link a tu encuesta (Google Forms, Typeform, etc.) o al documento con resultados.</div>
+        <input style={{ ...inputStyle, fontSize: 15 }} value={data.validacionPMV.linkResultados||""} onChange={e => un("validacionPMV","linkResultados",e.target.value)} placeholder="Pega el link de la encuesta aquí" />
+        {data.validacionPMV.linkResultados && <a href={data.validacionPMV.linkResultados} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.cyan, fontWeight: 600, fontSize: 13, display: "inline-block", marginTop: 6 }}>🔗 Ver resultados →</a>}
+      </div>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Conclusiones y Decisión</div>
+        <textarea style={{ ...textareaStyle, minHeight: 120 }} value={data.validacionPMV.conclusiones||""} onChange={e => un("validacionPMV","conclusiones",e.target.value)} placeholder="Escribe las conclusiones de la validación del PMV..." />
+        <label style={labelStyle}>Decisión del Comité</label>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          {[["avanzar",COLORS.cyan,"AVANZAR"],["revisar",COLORS.yellow,"REVISAR"],["parar",COLORS.red,"PARAR"]].map(([v,col,lbl]) => (
+            <button key={v} onClick={() => un("validacionPMV","decision",v)} style={{ ...btnStyle(col), padding: "12px 24px", fontSize: 16, fontWeight: 800, opacity: data.validacionPMV.decision===v?1:0.3, color: v==="revisar"?"#333":"#fff" }}>{lbl}</button>
+          ))}
         </div>
-      );
+      </div>
+    </div>
+  );
+
 
     // ---- TALLER 7: VT ----
-    // CORRECCIÓN #16: Vigilancia Tecnológica con instrucciones completas y ejemplos
-    case "a29":
-      return (
-        <div>
-          <InfoBox title="📖 ¿Qué debes hacer en este taller?">
-            <p style={{ marginTop: 8 }}>Debes realizar una <strong>Vigilancia Tecnológica</strong> usando el asistente PYLAR. El proceso tiene 5 pasos:</p>
-            <ol style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li><strong>Diagnóstico:</strong> Definir tema, objetivo, alcance, fuentes, FCV y descriptores.</li>
-              <li><strong>Búsqueda</strong> con PYLAR.</li>
-              <li><strong>Análisis e Informe.</strong></li>
-              <li><strong>Boletín</strong> informativo.</li>
-              <li><strong>Difusión</strong> al personal.</li>
-            </ol>
-          </InfoBox>
+    // ── T7A1: DIAGNÓSTICO VT ───────────────────────────────────
+  case "a29": return (
+    <div>
+      <div style={{ background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`, borderRadius: 10, padding: "14px 18px", marginBottom: 16, fontSize: 13, lineHeight: 1.7 }}>
+        <strong style={{ color: COLORS.navy }}>📌 Antes de ir al asistente PYLAR de Vigilancia Tecnológica</strong>, diligencia los siguientes apartados — los necesitarás en el asistente.
+      </div>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Diagnóstico de Vigilancia Tecnológica</div>
+        <label style={labelStyle}>Tema a vigilar</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>La empresa define un tema específico donde los recursos se enfocan. <strong>Ejemplo:</strong> Baterías de plomo ácido con nanotecnología.</div>
+        <textarea style={textareaStyle} value={data.vt.tema} onChange={e => un("vt","tema",e.target.value)} placeholder="Ej: Inteligencia Artificial aplicada al sector salud" />
+        <label style={labelStyle}>Objetivo de la vigilancia</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>Anticiparse a cambios, detectar nuevas tecnologías, mercados, competidores, patentes. <strong>Ejemplo:</strong> Identificar qué investigaciones existen sobre baterías con nanotecnología.</div>
+        <textarea style={textareaStyle} value={data.vt.objetivo} onChange={e => un("vt","objetivo",e.target.value)} placeholder="Ej: Identificar nuevas tecnologías que podamos aplicar a nuestros procesos..." />
+        <label style={labelStyle}>Alcance</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>¿Hasta dónde llegar? Un informe único, informes mensuales, anuales. <strong>Ejemplo:</strong> Generar informes trimestrales durante el proyecto.</div>
+        <textarea style={textareaStyle} value={data.vt.alcance} onChange={e => un("vt","alcance",e.target.value)} placeholder="Ej: Generar un informe inicial y luego informes trimestrales de novedades" />
+        <label style={labelStyle}>Factores Críticos de Vigilancia (FCV)</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>Palabras clave o frases que definen la búsqueda (GTC 186 — ICONTEC). <strong>Ejemplo:</strong> Baterías plomo ácido, nanotecnología, rejillas planté.</div>
+        <textarea style={textareaStyle} value={data.vt.fcv} onChange={e => un("vt","fcv",e.target.value)} placeholder="Ej: Inteligencia artificial en salud, machine learning diagnóstico médico..." />
+        <label style={labelStyle}>Descriptores</label>
+        <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>Restringen el alcance. <strong>Ejemplo:</strong> Fecha: últimos 5 años · Idioma: inglés y español · Países: EEUU, Japón, China.</div>
+        <textarea style={textareaStyle} value={data.vt.descriptores} onChange={e => un("vt","descriptores",e.target.value)} placeholder="Ej: Últimos 3 años · Español e inglés · Colombia, México, España" />
+      </div>
+    </div>
+  );
 
-          <div style={{
-            background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`,
-            borderRadius: 10, padding: "14px 18px", marginBottom: 16, fontSize: 13, lineHeight: 1.7,
-          }}>
-            <strong style={{ color: COLORS.navy }}>📌 Antes de ir al asistente PYLAR de Vigilancia Tecnológica,</strong> diligencia los siguientes apartados — los necesitarás en el asistente:
-          </div>
 
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Diagnóstico de Vigilancia Tecnológica</div>
+    // ── T7A2: INFORME VT ───────────────────────────────────────
+  case "a30-31": return (
+    <div>
+      <InfoBox title="📖 Búsqueda e Informe">
+        <p style={{ marginTop: 8 }}>Ingresa los datos del diagnóstico en el asistente <strong>PYLAR de Vigilancia Tecnológica</strong>. Sube el informe generado a Drive y pega el link aquí.</p>
+      </InfoBox>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Informe de Vigilancia Tecnológica</div>
+        <label style={labelStyle}>Link al informe de VT entregado por PYLAR</label>
+        <input style={inputStyle} value={data.vt.informe} onChange={e => un("vt","informe",e.target.value)} placeholder="Pega el link de Drive aquí" />
+        {data.vt.informe && <a href={data.vt.informe} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.cyan, fontWeight: 600, fontSize: 13, display: "inline-block", marginTop: 6 }}>🔗 Ver informe →</a>}
+      </div>
+    </div>
+  );
 
-            {/* Tema */}
-            <label style={labelStyle}>Tema a vigilar</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              La empresa debe definir un tema a vigilar porque los recursos son escasos y se debe centrar en vigilar aquello que realmente le genere valor.<br />
-              <strong>Ejemplo:</strong> Baterías de plomo ácido con nanotecnología.
-            </div>
-            <textarea style={textareaStyle} value={data.vt.tema}
-              onChange={e => uNested("vt", "tema", e.target.value)}
-              placeholder="Ej: Inteligencia Artificial aplicada al sector salud" />
-
-            {/* Objetivo */}
-            <label style={labelStyle}>Objetivo de la vigilancia</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              Propósito de la VT: anticiparse a cambios, detectar nuevas tecnologías, nuevos mercados, competidores, temas ambientales, patentes, ideas que solucionen retos de la empresa, entre otros.<br />
-              <strong>Ejemplo:</strong> Nuestra empresa está trabajando en el desarrollo de una nueva batería con nanotecnología y necesitamos saber qué investigaciones existen ya y qué productos hay en el mercado.
-            </div>
-            <textarea style={textareaStyle} value={data.vt.objetivo}
-              onChange={e => uNested("vt", "objetivo", e.target.value)}
-              placeholder="Ej: Identificar nuevas tecnologías de IA que podamos aplicar a nuestros procesos de atención al cliente" />
-
-            {/* Alcance */}
-            <label style={labelStyle}>Alcance</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              Hasta dónde se quiere llegar con la vigilancia: generar un informe único, informes mensuales, anuales, etc.<br />
-              <strong>Ejemplo:</strong> Identificar investigaciones sobre baterías de plomo ácido con nanotecnología en los últimos 5 años y generar varios informes durante la duración del proyecto.
-            </div>
-            <textarea style={textareaStyle} value={data.vt.alcance}
-              onChange={e => uNested("vt", "alcance", e.target.value)}
-              placeholder="Ej: Generar un informe inicial sobre el estado del arte y luego informes trimestrales de novedades" />
-
-            {/* Fuentes */}
-            <label style={labelStyle}>Fuentes de búsqueda</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              Existen muchas fuentes: ferias, congresos, seminarios, bases de datos de patentes, publicaciones científicas, artículos, bases pagas o gratuitas, IA.<br />
-              <strong>Ejemplo:</strong> IA, base de datos de artículos científicos, base de patentes, análisis de competencia.
-            </div>
-            <textarea style={textareaStyle} value={data.vt.fuentes || ""}
-              onChange={e => uNested("vt", "fuentes", e.target.value)}
-              placeholder="Ej: Google Académico, Scopus, Google Patents, PYLAR, páginas web de competidores" />
-
-            {/* FCV */}
-            <label style={labelStyle}>Factores Críticos de Vigilancia (FCV)</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              Son palabras clave o frases que definen la necesidad planteada y a partir de las cuales es posible desarrollar las ecuaciones de búsqueda. Según la Norma UNE 166002, los FCV son "las cuestiones externas a la organización cuya evolución es crucial para su competitividad: tecnologías emergentes, competidores actuales y potenciales, desarrollo de los mercados y del entorno." (GTC 186 — Guía Técnica Colombiana de ICONTEC para la vigilancia en la Gestión de la I+D+i).<br />
-              <strong>Ejemplo:</strong> Placa planté de rejillas de baterías de plomo ácido estacionarias, baterías con nanotecnología, innovación en baterías de plomo ácido.
-            </div>
-            <textarea style={textareaStyle} value={data.vt.fcv}
-              onChange={e => uNested("vt", "fcv", e.target.value)}
-              placeholder="Ej: Inteligencia artificial en salud, machine learning diagnóstico médico, IA atención al paciente" />
-
-            {/* Descriptores */}
-            <label style={labelStyle}>Descriptores</label>
-            <div style={{ fontSize: 12, color: COLORS.gray, marginBottom: 6, fontStyle: "italic" }}>
-              Ayudan a restringir el alcance de la investigación. Ejemplos de descriptores: países, años, idiomas, tipos de documento.<br />
-              <strong>Ejemplo:</strong> Fecha: últimos 5 años · Idioma: inglés y español · Lugar: EE. UU., Japón, China y Corea del Sur.
-            </div>
-            <textarea style={textareaStyle} value={data.vt.descriptores}
-              onChange={e => uNested("vt", "descriptores", e.target.value)}
-              placeholder="Ej: Fecha: últimos 3 años · Idioma: español e inglés · Países: Colombia, México, España" />
-          </div>
-        </div>
-      );
-
-    case "a30-31":
-      return (
-        <div>
-          <InfoBox title="📖 Instrucciones de búsqueda">
-            <p style={{ marginTop: 8 }}>Esta búsqueda la realiza el asistente <strong>PYLAR para vigilancia tecnológica</strong>. Ingresa los datos del diagnóstico anterior en el asistente y pídele que realice la búsqueda, el análisis y el informe.</p>
-            <p>Sube el informe a tu Drive y pega aquí el link.</p>
-          </InfoBox>
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>Búsqueda e Informe de VT</div>
-            <label style={labelStyle}>Resultados de la búsqueda (links a Drive, fuentes consultadas)</label>
-            <textarea style={{ ...textareaStyle, minHeight: 120 }}
-              value={data.vt.busquedaTexto || ""}
-              onChange={e => uNested("vt", "busquedaTexto", e.target.value)}
-              placeholder="Pega aquí los links a las fuentes, resultados de PYLAR, etc." />
-            <label style={labelStyle}>Link al informe de VT (Drive)</label>
-            <input style={inputStyle} value={data.vt.informe}
-              onChange={e => uNested("vt", "informe", e.target.value)}
-              placeholder="https://drive.google.com/..." />
-            {data.vt.informe && (
-              <a href={data.vt.informe} target="_blank" rel="noopener noreferrer"
-                style={{ display: "inline-block", marginTop: 6, color: COLORS.cyan, fontWeight: 600, fontSize: 13 }}>
-                🔗 Ver informe →
-              </a>
-            )}
-          </div>
-        </div>
-      );
 
     case "a32-33":
       return (
@@ -1843,264 +1813,467 @@ case "a23-24": {
       );
     }
 
+  case "t8a1": return (
+    <div>
+      <InfoBox title="📖 Propiedad Industrial">
+        <p style={{ marginTop: 8 }}>La propiedad industrial permite proteger los resultados de la innovación. Debes decidir si el PMV o resultado del proyecto será protegido y bajo qué figura.</p>
+      </InfoBox>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Protección del PMV</div>
+        {data.propiedadIndustrial.map((item, i) => (
+          <div key={i} style={{ padding: "16px", background: COLORS.cream, borderRadius: 10, marginBottom: 12, border: `1px solid ${COLORS.lightGray}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: COLORS.navy }}>Resultado / PMV {i+1}</div>
+              {data.propiedadIndustrial.length>1 && <button onClick={() => u("propiedadIndustrial",data.propiedadIndustrial.filter((_,j)=>j!==i))} style={{ ...btnStyle(COLORS.red), padding: "3px 8px", fontSize: 11 }}>✕</button>}
+            </div>
+            <label style={labelStyle}>Describe el PMV o resultado del proyecto</label>
+            <textarea style={textareaStyle} value={item.pmv} onChange={e => { const n=[...data.propiedadIndustrial]; n[i]={...n[i],pmv:e.target.value}; u("propiedadIndustrial",n); }} placeholder="Describe el PMV o resultado que podría protegerse..." />
+            <label style={labelStyle}>¿Lo va a proteger?</label>
+            <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+              {[["si","✅ Sí, voy a protegerlo"],["no","❌ No, no lo voy a proteger"]].map(([v,lbl]) => (
+                <label key={v} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "10px 16px", borderRadius: 8, border: `2px solid ${item.proteger===v?COLORS.cyan:COLORS.lightGray}`, background: item.proteger===v?COLORS.lightCyan:"#fff", fontSize: 14, fontWeight: item.proteger===v?700:400 }}>
+                  <input type="radio" checked={item.proteger===v} onChange={() => { const n=[...data.propiedadIndustrial]; n[i]={...n[i],proteger:v,tipo:""}; u("propiedadIndustrial",n); }} style={{ display: "none" }} />
+                  {lbl}
+                </label>
+              ))}
+            </div>
+            {item.proteger==="si" && (
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Figura de protección</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                  {[["patente","🔬 Patente"],["modelo_utilidad","🔧 Modelo de Utilidad"],["diseno_industrial","🎨 Diseño Industrial"],["secreto_industrial","🤫 Secreto Industrial"]].map(([v,lbl]) => (
+                    <label key={v} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "10px 14px", borderRadius: 8, border: `2px solid ${item.tipo===v?COLORS.cyan:COLORS.lightGray}`, background: item.tipo===v?COLORS.lightCyan:"#fff", fontSize: 14, fontWeight: item.tipo===v?700:400 }}>
+                      <input type="radio" checked={item.tipo===v} onChange={() => { const n=[...data.propiedadIndustrial]; n[i]={...n[i],tipo:v}; u("propiedadIndustrial",n); }} style={{ display: "none" }} />
+                      {lbl}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        <button onClick={() => u("propiedadIndustrial",[...data.propiedadIndustrial,{pmv:"",proteger:"no",tipo:""}])} style={{ ...btnStyle(), marginTop: 4 }}>+ Agregar resultado</button>
+      </div>
+    </div>
+  );
+
+  // ── T9A1: DIFUSIÓN Y EXPLOTACIÓN ───────────────────────────
+  case "t9a1": return (
+    <div>
+      <InfoBox title="📖 Plan de Difusión y Explotación">
+        <p style={{ marginTop: 8 }}>Usa el asistente <strong>PYLAR de plan de difusión y explotación</strong>. Sube el resultado a Drive y pega el link aquí.</p>
+      </InfoBox>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Plan de Difusión y Explotación de Resultados</div>
+        <label style={labelStyle}>Link al plan de difusión (Drive)</label>
+        <input style={inputStyle} value={data.planDifusion} onChange={e => u("planDifusion",e.target.value)} placeholder="Pega el link de Drive aquí" />
+        <label style={labelStyle}>Link al plan de explotación (Drive)</label>
+        <input style={inputStyle} value={data.planExplotacion} onChange={e => u("planExplotacion",e.target.value)} placeholder="Pega el link de Drive aquí" />
+      </div>
+    </div>
+  );
+
+  // ── T10A1: CULTURA ─────────────────────────────────────────
+  case "t10a1": return (
+    <div>
+      <InfoBox title="📖 Cultura de Innovación">
+        <p style={{ marginTop: 8 }}>Usa la herramienta de PLYNN para crear el programa de cultura de innovación. Pega el link del Drive.</p>
+      </InfoBox>
+      <div style={cardStyle}>
+        <div style={sectionTitleStyle}>Programa de Cultura de Innovación</div>
+        <label style={labelStyle}>Link al programa (Drive)</label>
+        <input style={inputStyle} value={data.programaCultura} onChange={e => u("programaCultura",e.target.value)} placeholder="Pega el link de Drive aquí" />
+        <label style={labelStyle}>Descripción de acciones de cultura</label>
+        <textarea style={{ ...textareaStyle, minHeight: 100 }} value={data.descripcionCultura||""} onChange={e => u("descripcionCultura",e.target.value)} placeholder="Describe las acciones de cultura de innovación a implementar..." />
+      </div>
+    </div>
+  );
+
+  // ── T11A1: GESTIÓN DEL CONOCIMIENTO ───────────────────────
+  case "t11a1": return (
+    <div>
+      <div style={{ background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`, borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.navy, marginBottom: 8 }}>🧠 Gestión del Conocimiento</div>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "#444", marginBottom: 12 }}>
+          Para realizar la Gestión del Conocimiento debes usar la <strong>herramienta PYLAR de Gestión del Conocimiento</strong>.
+        </p>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "#444", marginBottom: 12 }}>
+          <strong>Importante:</strong> No debes anexar nada en esta plantilla para este taller. Todo el trabajo se realiza directamente en la herramienta PYLAR de Gestión del Conocimiento.
+        </p>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "#444" }}>
+          La herramienta te ayudará a gestionar, documentar y transferir el conocimiento generado durante el proceso de innovación de tu empresa.
+        </p>
+      </div>
+      <div style={cardStyle}>
+        <label style={labelStyle}>Link a la herramienta PYLAR de Gestión del Conocimiento (opcional)</label>
+        <input style={inputStyle} value={(data.gestionConocimiento && data.gestionConocimiento.linkPYLAR)||""} onChange={e => un("gestionConocimiento","linkPYLAR",e.target.value)} placeholder="Pega el link aquí" />
+      </div>
+    </div>
+  );
+
+  // ── T12A1: CAPACIDADES ─────────────────────────────────────
+  case "t12a1": return (
+    <div>
+      <div style={{ background: COLORS.lightCyan, border: `1px solid ${COLORS.cyan}`, borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.navy, marginBottom: 8 }}>📈 Capacidades de Innovación</div>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "#444", marginBottom: 12 }}>
+          Para medir las capacidades de innovación de tu empresa debes usar la <strong>herramienta PYLAR de diagnóstico de capacidades de innovación</strong>.
+        </p>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "#444" }}>
+          Una vez realices el diagnóstico, copia el link con los resultados y pégalo aquí en esta plantilla.
+        </p>
+      </div>
+      <div style={cardStyle}>
+        <label style={labelStyle}>Link con el resultado del diagnóstico de capacidades (PYLAR)</label>
+        <input style={inputStyle} value={(data.capacidades && data.capacidades.linkResultado)||""} onChange={e => un("capacidades","linkResultado",e.target.value)} placeholder="Pega el link aquí" />
+        {(data.capacidades && data.capacidades.linkResultado) && <a href={data.capacidades.linkResultado} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.cyan, fontWeight: 600, fontSize: 13, display: "inline-block", marginTop: 6 }}>🔗 Ver resultado →</a>}
+      </div>
+    </div>
+  );
+
+  // ── T13A1: INDICADORES ─────────────────────────────────────
+  case "t13a1": {
+    const addInd = () => u("indicadores",[...data.indicadores,{nombre:"",objetivo:"",formula:"",fuente:"",meta:"",periodicidad:"",fecha:""}]);
+    return (
+      <div>
+        <InfoBox title="📖 Indicadores de Innovación">
+          <p style={{ marginTop: 8 }}>Escribe mínimo un indicador de innovación con todos sus atributos.</p>
+        </InfoBox>
+        {data.indicadores.map((ind,i) => (
+          <div key={i} style={{ ...cardStyle, position: "relative" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 700, color: COLORS.navy }}>Indicador {i+1}</div>
+              {data.indicadores.length>1 && <button onClick={() => u("indicadores",data.indicadores.filter((_,j)=>j!==i))} style={{ ...btnStyle(COLORS.red), padding: "2px 8px", fontSize: 11 }}>✕</button>}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+              {[
+                ["nombre","Nombre","Ej: Número de retos identificados por año"],
+                ["objetivo","Objetivo","Ej: Medir la capacidad de identificación de oportunidades"],
+                ["formula","Fórmula","Ej: Total retos identificados / período evaluado"],
+                ["fuente","Fuente de datos","Ej: Plantilla INNOVACCIÓN, actas del comité"],
+                ["meta","Meta","Ej: Mínimo 10 retos por semestre"],
+                ["periodicidad","Periodicidad","Mensual, Trimestral, Semestral..."],
+              ].map(([k,lbl,ph]) => (
+                <div key={k}>
+                  <label style={{ ...labelStyle, marginTop: 0 }}>{lbl}</label>
+                  <input style={inputStyle} value={ind[k]} onChange={e => { const n=[...data.indicadores]; n[i]={...n[i],[k]:e.target.value}; u("indicadores",n); }} placeholder={ph} />
+                </div>
+              ))}
+              <div>
+                <label style={labelStyle}>Fecha de evaluación</label>
+                <input type="date" style={inputStyle} value={ind.fecha} onChange={e => { const n=[...data.indicadores]; n[i]={...n[i],fecha:e.target.value}; u("indicadores",n); }} />
+              </div>
+            </div>
+          </div>
+        ))}
+        <button onClick={addInd} style={btnStyle()}>+ Agregar indicador</button>
+      </div>
+    );
+  }
+
+
+
     default:
       return <div style={{ color: COLORS.gray, padding: 20 }}>Actividad en desarrollo...</div>;
   }
 }
 
-// ============================================================
-// EXPORT / DOWNLOAD — CORRECCIÓN #17: Botón de descarga completa
-// ============================================================
-function generateSheetsData(data) {
-  const rows = [];
-  rows.push(["PLANTILLA INNOVACCIÓN 2026 — PLYNN"]);
-  rows.push(["Exportado el", new Date().toLocaleString("es-CO")]);
-  rows.push(["Empresa", data.empresa.nombre]);
-  rows.push([]);
-  rows.push(["=== DATOS DE LA EMPRESA ==="]);
-  rows.push(["Nombre", data.empresa.nombre]);
-  rows.push(["Sector", data.empresa.sector]);
-  rows.push(["Empleados", data.empresa.empleados]);
-  rows.push(["Productos", data.empresa.productos]);
-  rows.push([]);
-  rows.push(["=== COMITÉ DE INNOVACIÓN ==="]);
-  rows.push(["Departamento", "Nombre"]);
-  data.comite.forEach(m => rows.push([m.departamento, m.nombre]));
-  rows.push(["Líder de Innovación", data.liderInnovacion]);
-  rows.push([]);
-  rows.push(["=== FOCOS DE INNOVACIÓN ==="]);
-  rows.push(["Tipo", "Porcentaje"]);
-  data.focos.forEach(f => rows.push([f.tipo, f.porcentaje + "%"]));
-  rows.push([]);
-  rows.push(["=== ESTRATEGIA ==="]);
-  rows.push(["Objetivos Estratégicos", data.objetivosEstrategicos]);
-  rows.push(["Objetivos de Innovación", data.objetivosInnovacion || ""]);
-  rows.push(["Estrategia de Innovación", data.estrategiaInnovacion]);
-  rows.push([]);
-  rows.push(["=== RETOS ==="]);
-  rows.push(["Tipo", "Categoría", "Descripción"]);
-  data.retosInternos.forEach(r => rows.push([r.tipo, "Interno", r.text]));
-  data.retosCadena.forEach(r => rows.push([r.tipo, "Cadena", r.text]));
-  data.retosSector.forEach(r => rows.push([r.tipo, "Sector", r.text]));
-  rows.push(["Reto cerrado", data.retoCerrado]);
-  rows.push(["Reto abierto", data.retoAbierto]);
-  rows.push([]);
-  rows.push(["=== IDEAS ==="]);
-  data.ideas.forEach(i => rows.push([i.tipo, i.text]));
-  rows.push(["Idea que continúa", data.ideaContinua]);
-  rows.push([]);
-  rows.push(["=== PMV ==="]);
-  rows.push(["Reto", data.pmv.reto]);
-  rows.push(["Idea", data.pmv.idea]);
-  rows.push(["Mercado", data.pmv.mercado]);
-  rows.push(["Funcionalidades", data.pmv.funcionalidades]);
-  rows.push(["Link validación", data.linkValidacionPMV || ""]);
-  rows.push(["Conclusiones", data.conclusionesPMV]);
-  rows.push(["Decisión", data.decisionPMV]);
-  rows.push([]);
-  rows.push(["=== VIGILANCIA TECNOLÓGICA ==="]);
-  rows.push(["Tema", data.vt.tema]);
-  rows.push(["Objetivo", data.vt.objetivo]);
-  rows.push(["Alcance", data.vt.alcance]);
-  rows.push(["Fuentes", data.vt.fuentes || ""]);
-  rows.push(["FCV", data.vt.fcv]);
-  rows.push(["Descriptores", data.vt.descriptores]);
-  rows.push([]);
-  rows.push(["=== INDICADORES ==="]);
-  rows.push(["Nombre", "Objetivo", "Fórmula", "Fuente", "Meta", "Periodicidad"]);
-  data.indicadores.forEach(i => rows.push([i.nombre, i.objetivo, i.formula, i.fuente, i.meta, i.periodicidad]));
-  return rows;
-}
 
-function downloadCSV(data) {
-  const rows = generateSheetsData(data);
-  const csv = rows.map(r => r.map(c => `"${String(c || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `INNOVACCION_${data.empresa.nombre || "empresa"}_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+function generatePDFContent(data) {
+  const logoHtml = data.empresa.logo ? `<img src="${data.empresa.logo}" style="max-height:70px;max-width:160px;object-fit:contain;"/>` : "";
+  const orgImg = data.organigramaImg ? `<img src="${data.organigramaImg}" style="max-width:100%;border-radius:8px;margin-top:8px;"/>` : "";
+  const pmvEvidencia = data.pmv.evidenciasArchivo ? `<img src="${data.pmv.evidenciasArchivo}" style="max-width:100%;border-radius:8px;margin-top:8px;"/>` : "";
 
-// CORRECCIÓN #17: Descarga completa en HTML imprimible
-function downloadFullReport(data) {
-  const logoHtml = data.empresa.logo
-    ? `<img src="${data.empresa.logo}" style="max-height:80px;max-width:180px;object-fit:contain;margin-bottom:8px;" /><br/>`
-    : "";
-
-  const section = (title, content) =>
-    `<div style="margin-bottom:24px;"><h2 style="color:#1A3365;border-bottom:3px solid #0FBAE3;padding-bottom:6px;font-family:Arial,sans-serif;">${title}</h2>${content}</div>`;
-
-  const row = (label, value) =>
-    value ? `<p style="margin:4px 0;font-size:14px;"><strong>${label}:</strong> ${value}</p>` : "";
-
-  const tableRows = (items, cols) =>
-    `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
-      <thead><tr style="background:#1A2E4A;color:#fff;">${cols.map(c=>`<th style="padding:8px;text-align:left;">${c}</th>`).join("")}</tr></thead>
-      <tbody>${items.map(item=>`<tr style="border-bottom:1px solid #eee;">${Object.values(item).map(v=>`<td style="padding:6px 8px;">${v||""}</td>`).join("")}</tr>`).join("")}</tbody>
+  const sec = (title, icon, content) => `
+    <div style="margin-bottom:28px;page-break-inside:avoid;">
+      <h2 style="color:#1A2E4A;border-bottom:3px solid #00A0B0;padding-bottom:8px;font-family:Arial,sans-serif;font-size:16px;margin-bottom:12px;">${icon} ${title}</h2>
+      ${content}
+    </div>`;
+  const row = (l, v) => v ? `<p style="margin:5px 0;font-size:13px;"><strong style="color:#1A2E4A;">${l}:</strong> ${v}</p>` : "";
+  const tbl = (headers, rows) => `
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">
+      <thead><tr style="background:#1A2E4A;color:#fff;">${headers.map(h=>`<th style="padding:7px 8px;text-align:left;">${h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?"#f5f7fa":"#fff"};border-bottom:1px solid #eee;">${r.map(c=>`<td style="padding:6px 8px;">${c||""}</td>`).join("")}</tr>`).join("")}</tbody>
     </table>`;
+  const chip = (text, tipo) => `<span style="background:${tipo==="problema"?"#FF6B6B":tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${tipo==="necesidad"?"#333":"#fff"};padding:3px 10px;border-radius:4px;margin:2px;display:inline-block;font-size:12px;">${text}</span>`;
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <title>Plantilla INNOVACCIÓN — ${data.empresa.nombre || "Mi Empresa"}</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 32px; color: #222; }
-    h1 { color: #1A3365; } h2 { color: #1A3365; }
-    @media print { body { padding: 16px; } }
-  </style>
+<head><meta charset="UTF-8">
+<title>Informe INNOVACCIÓN — ${data.empresa.nombre}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:820px;margin:0 auto;padding:32px;color:#222;font-size:13px;line-height:1.6;}
+  h1,h2,h3{font-family:Arial,sans-serif;}
+  table{width:100%;border-collapse:collapse;}
+  @page{margin:20mm;}
+</style>
 </head>
 <body>
-  <div style="text-align:center;margin-bottom:32px;padding:24px;background:#1A2E4A;border-radius:12px;color:#fff;">
-    ${logoHtml}
-    <div style="font-size:13px;opacity:0.8;margin-bottom:4px;">Cámara de Comercio Aburrá Sur · PLYNN</div>
-    <h1 style="color:#0FBCCC;margin:0;font-size:28px;">PLANTILLA INNOVACCIÓN</h1>
-    <div style="font-size:16px;margin-top:8px;">${data.empresa.nombre || ""}</div>
-    <div style="font-size:12px;opacity:0.7;margin-top:4px;">Generado el ${new Date().toLocaleDateString("es-CO")}</div>
+
+<div style="background:#1A2E4A;color:#fff;padding:28px 32px;border-radius:12px;margin-bottom:32px;text-align:center;">
+  ${logoHtml ? `<div style="margin-bottom:12px;">${logoHtml}</div>` : ""}
+  <div style="font-size:12px;opacity:0.7;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;">Cámara de Comercio Aburrá Sur · PLYNN</div>
+  <h1 style="color:#00A0B0;margin:0;font-size:26px;">INFORME PLANTILLA INNOVACCIÓN V3</h1>
+  <div style="font-size:16px;font-weight:700;margin-top:8px;">${data.empresa.nombre || "—"}</div>
+  <div style="font-size:12px;opacity:0.6;margin-top:4px;">Generado el ${new Date().toLocaleDateString("es-CO")}</div>
+</div>
+
+${sec("Datos de la Empresa","🏢",`
+  ${row("Nombre",data.empresa.nombre)}
+  ${row("Sector",data.empresa.sector)}
+  ${row("N° de empleados",data.empresa.empleados)}
+  ${row("Productos / Servicios",data.empresa.productos)}
+`)}
+
+${sec("Comité de Innovación","👥",`
+  ${tbl(["Departamento","Nombre del Director"],data.comite.map(m=>[m.departamento,m.nombre]))}
+  ${row("Líder de Innovación",data.liderInnovacion)}
+  <h3 style="color:#1A2E4A;font-size:14px;margin-top:16px;">Organigrama con Innovación Jerarquizada</h3>
+  ${row("Descripción",data.organigrama)}
+  ${orgImg}
+  <h3 style="color:#1A2E4A;font-size:14px;margin-top:16px;">Acta N° 1 — Inicio del Comité</h3>
+  ${row("Fecha",data.acta.fecha)} ${row("Hora",data.acta.hora)} ${row("Lugar",data.acta.lugar)}
+  ${row("Periodicidad",data.acta.periodicidad)}
+  ${tbl(["Nombre","Cargo"],data.acta.asistentes.map(a=>[a.nombre,a.cargo]))}
+  ${row("Compromisos adicionales",data.acta.compromisos)}
+`)}
+
+${sec("Business Model Canvas","🎯",`
+  <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <tr>
+      <td style="border:1px solid #ccc;padding:8px;vertical-align:top;width:20%;background:#f0f4ff;"><strong>Partners</strong><br/>${data.canvas.partners||"—"}</td>
+      <td style="border:1px solid #ccc;padding:8px;vertical-align:top;width:20%;background:#f0f4ff;"><strong>Act. Claves</strong><br/>${data.canvas.actividadesClaves||"—"}<br/><strong>Rec. Claves</strong><br/>${data.canvas.recursosClaves||"—"}</td>
+      <td style="border:1px solid #ccc;padding:8px;vertical-align:top;width:20%;background:#e8fdf0;"><strong>Propuesta de Valor</strong><br/>${data.canvas.propuestaValor||"—"}</td>
+      <td style="border:1px solid #ccc;padding:8px;vertical-align:top;width:20%;background:#fff8e8;"><strong>Rel. Clientes</strong><br/>${data.canvas.relacionClientes||"—"}<br/><strong>Canales</strong><br/>${data.canvas.canales||"—"}</td>
+      <td style="border:1px solid #ccc;padding:8px;vertical-align:top;width:20%;background:#fff0f0;"><strong>Clientes</strong><br/>${data.canvas.clientes||"—"}</td>
+    </tr>
+    <tr>
+      <td colspan="3" style="border:1px solid #ccc;padding:8px;background:#f8f0ff;"><strong>Estructura de Costos:</strong> ${data.canvas.estructuraCostos||"—"}</td>
+      <td colspan="2" style="border:1px solid #ccc;padding:8px;background:#f0fff0;"><strong>Fuentes de Ingreso:</strong> ${data.canvas.fuentesIngreso||"—"}</td>
+    </tr>
+  </table>
+`)}
+
+${sec("Focos de Innovación","🎯",`
+  ${tbl(["Tipo de Innovación","Porcentaje"],data.focos.map(f=>[f.tipo,(f.porcentaje||0)+"%"]))}
+  <p style="font-size:12px;color:#666;margin-top:6px;"><strong>Total: ${data.focos.reduce((s,f)=>s+(parseInt(f.porcentaje)||0),0)}%</strong></p>
+`)}
+
+${sec("Estrategia de Innovación","🧭",`
+  ${row("Objetivos Estratégicos",data.objetivosEstrategicos)}
+  ${row("Objetivos de Innovación",data.objetivosInnovacion)}
+  ${row("Estrategia de Innovación",data.estrategiaInnovacion)}
+  ${row("Recursos Destinados",data.recursosEstrategia)}
+`)}
+
+${sec("Taller de Retos","⚡",`
+  <h3 style="color:#1A2E4A;font-size:14px;">Cartelera de Retos</h3>
+  <div style="margin-bottom:8px;"><strong>Internos:</strong> ${data.retosInternos.map(r=>chip(r.text,r.tipo)).join(" ")||"—"}</div>
+  <div style="margin-bottom:8px;"><strong>Cadena de Valor:</strong> ${data.retosCadena.map(r=>chip(r.text,r.tipo)).join(" ")||"—"}</div>
+  <div style="margin-bottom:12px;"><strong>Sector:</strong> ${data.retosSector.map(r=>chip(r.text,r.tipo)).join(" ")||"—"}</div>
+  <h3 style="color:#1A2E4A;font-size:14px;">Evaluación de Retos (Matriz Estratégico-Factible)</h3>
+  ${tbl(["Reto","Tipo","Estratégico","Factible"],data.retosEvaluados.map(r=>[r.nombre,r.tipo,r.estrategico,r.factible]))}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
+    <div style="background:#E8F5E9;padding:10px;border-radius:6px;font-size:12px;"><strong>Innovación Cerrada</strong> (Alto E + Alto F)<br/>${data.retosEvaluados.filter(r=>r.estrategico>=3&&r.factible>=3).map(r=>chip(r.nombre,r.tipo)).join(" ")||"—"}</div>
+    <div style="background:#FFF3E0;padding:10px;border-radius:6px;font-size:12px;"><strong>Intraemprendimiento</strong> (Bajo E + Alto F)<br/>${data.retosEvaluados.filter(r=>r.estrategico<3&&r.factible>=3).map(r=>chip(r.nombre,r.tipo)).join(" ")||"—"}</div>
+    <div style="background:#E3F2FD;padding:10px;border-radius:6px;font-size:12px;"><strong>Innovación Abierta</strong> (Alto E + Bajo F)<br/>${data.retosEvaluados.filter(r=>r.estrategico>=3&&r.factible<3).map(r=>chip(r.nombre,r.tipo)).join(" ")||"—"}</div>
+    <div style="background:#FFEBEE;padding:10px;border-radius:6px;font-size:12px;"><strong>Descartados</strong> (Bajo E + Bajo F)<br/>${data.retosEvaluados.filter(r=>r.estrategico<3&&r.factible<3).map(r=>chip(r.nombre,r.tipo)).join(" ")||"—"}</div>
   </div>
+  ${row("Reto Innovación Abierta",data.retoAbierto)}
+  ${row("Link ficha reto abierto",data.fichaRetoAbierto)}
+`)}
 
-  ${section("Datos de la Empresa", `
-    ${row("Nombre", data.empresa.nombre)}
-    ${row("Sector", data.empresa.sector)}
-    ${row("N° de empleados", data.empresa.empleados)}
-    ${row("Productos/Servicios", data.empresa.productos)}
-  `)}
-
-  ${section("Comité de Innovación", `
-    ${tableRows(data.comite, ["Departamento","Nombre"])}
-    ${row("Líder de Innovación", data.liderInnovacion)}
-    ${row("Fecha del acta", data.acta.fecha)}
-    ${row("Periodicidad del comité", data.acta.periodicidad)}
-    <h3 style="color:#1A3365;margin-top:16px;">Asistentes</h3>
-    ${tableRows(data.acta.asistentes, ["Nombre","Cargo"])}
-  `)}
-
-  ${section("Focos de Innovación", `
-    ${tableRows(data.focos.map(f=>({tipo:f.tipo, pct:(f.porcentaje||0)+"%"})), ["Tipo de innovación","Porcentaje"])}
-  `)}
-
-  ${section("Estrategia de Innovación", `
-    ${row("Objetivos estratégicos", data.objetivosEstrategicos)}
-    ${row("Objetivos de innovación", data.objetivosInnovacion)}
-    ${row("Estrategia de innovación", data.estrategiaInnovacion)}
-    ${row("Recursos destinados", data.recursosEstrategia)}
-  `)}
-
-  ${section("Retos de Innovación", `
-    <h3 style="color:#1A3365;">Retos Internos</h3>
-    ${data.retosInternos.map(r=>`<span style="background:${r.tipo==="problema"?"#FF6B6B":r.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${r.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${r.text}</span>`).join("")||"—"}
-    <h3 style="color:#1A3365;margin-top:12px;">Retos de la Cadena</h3>
-    ${data.retosCadena.map(r=>`<span style="background:${r.tipo==="problema"?"#FF6B6B":r.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${r.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${r.text}</span>`).join("")||"—"}
-    <h3 style="color:#1A3365;margin-top:12px;">Retos del Sector</h3>
-    ${data.retosSector.map(r=>`<span style="background:${r.tipo==="problema"?"#FF6B6B":r.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${r.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${r.text}</span>`).join("")||"—"}
-    ${row("Reto de innovación cerrada", data.retoCerrado)}
-    ${row("Reto de innovación abierta", data.retoAbierto)}
-  `)}
-
-  ${section("Ideas de Innovación", `
-    ${data.ideas.map(i=>`<span style="background:${i.tipo==="problema"?"#FF6B6B":i.tipo==="oportunidad"?"#6BCB77":"#FFD93D"};color:${i.tipo==="necesidad"?"#333":"#fff"};padding:4px 10px;border-radius:4px;margin:3px;display:inline-block;font-size:13px;">${i.text}</span>`).join("")||"—"}
-    ${row("Idea que continúa", data.ideaContinua)}
-  `)}
-
-  ${section("PMV — Producto Mínimo Viable", `
-    ${row("Reto", data.pmv.reto)}
-    ${row("Idea elegida", data.pmv.idea)}
-    ${row("Mercado", data.pmv.mercado)}
-    ${row("Funcionalidades mínimas", data.pmv.funcionalidades)}
-    ${row("Link de validación", data.linkValidacionPMV)}
-    ${row("Conclusiones de la validación", data.conclusionesPMV)}
-    ${row("Decisión del comité", data.decisionPMV?.toUpperCase())}
-  `)}
-
-  ${section("Vigilancia Tecnológica", `
-    ${row("Tema a vigilar", data.vt.tema)}
-    ${row("Objetivo", data.vt.objetivo)}
-    ${row("Alcance", data.vt.alcance)}
-    ${row("Fuentes", data.vt.fuentes)}
-    ${row("FCV", data.vt.fcv)}
-    ${row("Descriptores", data.vt.descriptores)}
-    ${row("Link al informe", data.vt.informe)}
-    ${row("Link al boletín", data.vt.boletin)}
-  `)}
-
-  ${section("Indicadores de Innovación", `
-    ${tableRows(data.indicadores, ["Nombre","Objetivo","Fórmula","Fuente","Meta","Periodicidad"])}
-  `)}
-
-  <div style="text-align:center;margin-top:40px;padding:16px;background:#F7F8FC;border-radius:8px;font-size:12px;color:#6B7280;">
-    Cámara de Comercio Aburrá Sur · PLYNN · plynnpymes.com
+${sec("Taller de Ideas","💡",`
+  ${data.retosParaIdeas.map((r,i)=>r.reto?`<div style="margin-bottom:16px;"><div style="background:#1A2E4A;color:#fff;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:700;margin-bottom:8px;">Reto ${i+1}: ${r.reto}</div><div>${(data.ideasPorReto[i]||[]).map(id=>chip(id.text,id.tipo)).join(" ")||"Sin ideas registradas"}</div></div>`:"").join("")}
+  <h3 style="color:#1A2E4A;font-size:14px;margin-top:16px;">Evaluación de Ideas</h3>
+  ${tbl(["Idea","Tipo","Estratégico","Factible"],data.ideasEvaluadas.map(i=>[i.nombre,i.tipo,i.estrategico,i.factible]))}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
+    <div style="background:#E8F5E9;padding:10px;border-radius:6px;font-size:12px;"><strong>Banco de Ideas</strong> (Alto E + Alto F)<br/>${data.ideasEvaluadas.filter(i=>i.estrategico>=3&&i.factible>=3).map(i=>chip(i.nombre,i.tipo)).join(" ")||"—"}</div>
+    <div style="background:#FFF3E0;padding:10px;border-radius:6px;font-size:12px;"><strong>Ideas para Analizar</strong> (Bajo E + Alto F)<br/>${data.ideasEvaluadas.filter(i=>i.estrategico<3&&i.factible>=3).map(i=>chip(i.nombre,i.tipo)).join(" ")||"—"}</div>
+    <div style="background:#E3F2FD;padding:10px;border-radius:6px;font-size:12px;"><strong>Ideas para Analizar</strong> (Alto E + Bajo F)<br/>${data.ideasEvaluadas.filter(i=>i.estrategico>=3&&i.factible<3).map(i=>chip(i.nombre,i.tipo)).join(" ")||"—"}</div>
+    <div style="background:#FFEBEE;padding:10px;border-radius:6px;font-size:12px;"><strong>Descartadas</strong> (Bajo E + Bajo F)<br/>${data.ideasEvaluadas.filter(i=>i.estrategico<3&&i.factible<3).map(i=>chip(i.nombre,i.tipo)).join(" ")||"—"}</div>
   </div>
-</body>
-</html>`;
+  ${row("Idea que Continúa",data.ideaContinua)}
+  ${row("Reto que soluciona",data.retoDeLaIdea)}
+`)}
 
-  const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `INNOVACCION_${data.empresa.nombre || "empresa"}_${new Date().toISOString().slice(0, 10)}.html`;
-  a.click();
-  URL.revokeObjectURL(url);
+${sec("Portafolio y PMV","🚀",`
+  <h3 style="color:#1A2E4A;font-size:14px;">Prospección de Ideas</h3>
+  ${data.ideasProspeccion.length ? tbl(["Idea","Decisión"],data.ideasProspeccion.map(i=>[i.nombre,i.decision])) : "<p>Sin datos</p>"}
+  <h3 style="color:#1A2E4A;font-size:14px;margin-top:16px;">Portafolio de Proyectos</h3>
+  ${data.proyectos.length ? tbl(["Proyecto","Calificación"],data.proyectos.map(p=>[p.nombre,p.calificacion])) : "<p>Sin datos</p>"}
+  <h3 style="color:#1A2E4A;font-size:14px;margin-top:16px;">PMV — Producto Mínimo Viable</h3>
+  ${row("Reto",data.pmv.reto)}
+  ${row("Idea elegida",data.pmv.idea)}
+  ${row("Mercado",data.pmv.mercado)}
+  ${row("Funcionalidades mínimas",data.pmv.funcionalidades)}
+  ${pmvEvidencia ? `<div style="margin-top:8px;"><strong>Evidencia del PMV:</strong>${pmvEvidencia}</div>` : ""}
+  <h3 style="color:#1A2E4A;font-size:14px;margin-top:16px;">Validación del PMV</h3>
+  ${data.validacionPMV.preguntas.filter(q=>q).length ? `<ol style="padding-left:18px;font-size:13px;">${data.validacionPMV.preguntas.filter(q=>q).map(q=>`<li style="margin-bottom:4px;">${q}</li>`).join("")}</ol>` : ""}
+  ${row("Link de resultados",data.validacionPMV.linkResultados)}
+  ${row("Conclusiones",data.validacionPMV.conclusiones)}
+  ${row("Decisión del Comité",(data.validacionPMV.decision ? data.validacionPMV.decision.toUpperCase() : ''))}
+`)}
+
+${sec("Vigilancia Tecnológica","🔍",`
+  ${row("Tema a vigilar",data.vt.tema)}
+  ${row("Objetivo",data.vt.objetivo)}
+  ${row("Alcance",data.vt.alcance)}
+  ${row("FCV",data.vt.fcv)}
+  ${row("Descriptores",data.vt.descriptores)}
+  ${row("Link Informe VT (PYLAR)",data.vt.informe)}
+  ${row("Link Boletín",data.vt.boletin)}
+  ${row("Difusión",data.vt.difusion)}
+`)}
+
+${sec("Propiedad Industrial","🔒",`
+  ${tbl(["PMV / Resultado","¿Proteger?","Tipo de Protección"],data.propiedadIndustrial.map(p=>[p.pmv,p.proteger==="si"?"Sí":"No",p.tipo||"—"]))}
+`)}
+
+${sec("Plan de Difusión y Explotación","📣",`
+  ${row("Link Plan de Difusión",data.planDifusion)}
+  ${row("Link Plan de Explotación",data.planExplotacion)}
+`)}
+
+${sec("Cultura de Innovación","🌱",`
+  ${row("Link Programa de Cultura",data.programaCultura)}
+  ${row("Descripción acciones",data.descripcionCultura)}
+`)}
+
+${sec("Gestión del Conocimiento","🧠",`
+  ${row("Link herramienta PYLAR GC",(data.gestionConocimiento && data.gestionConocimiento.linkPYLAR))}
+`)}
+
+${sec("Capacidades de Innovación","📈",`
+  ${row("Link resultado diagnóstico PYLAR",(data.capacidades && data.capacidades.linkResultado))}
+`)}
+
+${sec("Indicadores de Innovación","📊",`
+  ${tbl(["Nombre","Objetivo","Fórmula","Fuente","Meta","Periodicidad"],data.indicadores.map(i=>[i.nombre,i.objetivo,i.formula,i.fuente,i.meta,i.periodicidad]))}
+`)}
+
+<div style="text-align:center;margin-top:40px;padding:16px;background:#F5F7FA;border-radius:8px;font-size:11px;color:#888;border-top:2px solid #00A0B0;">
+  Plantilla INNOVACCIÓN V3 · Cámara de Comercio Aburrá Sur - PLYNN · plynnpymes.com
+</div>
+</body></html>`;
 }
+
+async function downloadPDF(data) {
+  const htmlContent = generatePDFContent(data);
+  if (window.html2pdf) {
+    const container = document.createElement("div");
+    container.innerHTML = htmlContent;
+    document.body.appendChild(container);
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: `INNOVACCION_${data.empresa.nombre || "empresa"}_${new Date().toISOString().slice(0,10)}.pdf`,
+      image: { type: "jpeg", quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    };
+    try {
+      await window.html2pdf().set(opt).from(container).save();
+    } finally {
+      document.body.removeChild(container);
+    }
+  } else {
+    // Fallback: open in new window for manual print-to-PDF
+    const w = window.open("", "_blank");
+    w.document.write(htmlContent);
+    w.document.close();
+    setTimeout(() => w.print(), 800);
+  }
+}
+
+
 
 // ============================================================
 // PROGRESS TRACKER
 // ============================================================
+// ─── PROGRESS CALC ──────────────────────────────────────────
 function calcProgress(data) {
-  let filled = 0, total = 0;
-  const check = (val) => { total++; if (val && String(val).trim()) filled++; };
-  check(data.empresa.nombre); check(data.empresa.sector); check(data.empresa.empleados);
-  data.comite.forEach(m => { check(m.departamento); check(m.nombre); });
-  check(data.liderInnovacion);
-  check(data.acta.fecha);
-  Object.values(data.canvas).forEach(v => check(v));
-  data.focos.forEach(f => check(f.porcentaje));
-  check(data.objetivosEstrategicos); check(data.estrategiaInnovacion);
-  check(data.retoCerrado); check(data.retoAbierto);
-  check(data.ideaContinua);
-  check(data.pmv.reto); check(data.pmv.idea); check(data.pmv.funcionalidades);
-  check(data.conclusionesPMV);
-  data.indicadores.forEach(i => check(i.nombre));
-  return total > 0 ? Math.round((filled / total) * 100) : 0;
+  const checks = [];
+  // Datos empresa
+  checks.push(!!data.empresa.nombre, !!data.empresa.sector, !!data.empresa.empleados, !!data.empresa.productos);
+  // Comité
+  checks.push(data.comite.some(m => m.nombre), !!data.liderInnovacion, !!data.acta.fecha);
+  // Canvas
+  Object.values(data.canvas).forEach(v => checks.push(!!v));
+  // Focos
+  checks.push(data.focos.some(f => f.porcentaje));
+  // Estrategia
+  checks.push(!!data.estrategiaInnovacion, !!data.objetivosEstrategicos);
+  // Retos
+  checks.push(data.retosInternos.length > 0 || data.retosCadena.length > 0 || data.retosSector.length > 0);
+  checks.push(data.retosEvaluados.some(r => r.nombre));
+  checks.push(!!data.retoAbierto);
+  // Ideas
+  checks.push(data.ideasPorReto.some(arr => arr.length > 0));
+  checks.push(!!data.ideaContinua);
+  // PMV
+  checks.push(!!data.pmv.reto, !!data.pmv.idea, !!data.pmv.funcionalidades);
+  checks.push(!!data.validacionPMV.conclusiones);
+  // VT
+  checks.push(!!data.vt.tema, !!data.vt.informe);
+  // Propiedad industrial
+  checks.push(data.propiedadIndustrial.some(p => p.pmv));
+  // Difusión
+  checks.push(!!data.planDifusion);
+  // Cultura
+  checks.push(!!data.programaCultura);
+  // Indicadores
+  checks.push(data.indicadores.some(i => i.nombre));
+  const filled = checks.filter(Boolean).length;
+  return Math.round((filled / checks.length) * 100);
 }
 
-// ============================================================
-// MAIN APP
-// ============================================================
+function getMissingActivities(data) {
+  const missing = [];
+  if (!data.empresa.nombre) missing.push("Nombre de la empresa");
+  if (!data.empresa.sector) missing.push("Sector de la empresa");
+  if (!data.liderInnovacion) missing.push("Líder de Innovación");
+  if (!data.acta.fecha) missing.push("Acta del Comité");
+  if (!data.canvas.propuestaValor) missing.push("Business Model Canvas");
+  if (!data.focos.some(f => f.porcentaje)) missing.push("Focos de Innovación");
+  if (!data.estrategiaInnovacion) missing.push("Estrategia de Innovación");
+  if (!data.retosEvaluados.some(r => r.nombre)) missing.push("Evaluar Retos");
+  if (!data.ideaContinua) missing.push("Idea que Continúa");
+  if (!data.pmv.funcionalidades) missing.push("Construir el PMV");
+  if (!data.validacionPMV.conclusiones) missing.push("Validar el PMV");
+  if (!data.vt.tema) missing.push("Diagnóstico VT");
+  if (!data.vt.informe) missing.push("Informe VT");
+  if (!data.planDifusion) missing.push("Plan de Difusión");
+  if (!data.programaCultura) missing.push("Cultura de Innovación");
+  if (!data.indicadores.some(i => i.nombre)) missing.push("Indicadores");
+  return missing;
+}
+
+// ─── PDF GENERATOR ──────────────────────────────────────────
+
+
+// ─── MAIN APP ────────────────────────────────────────────────
 function InnovaccionApp({ user, onLogout }) {
-  const [data, setData] = useState(DEFAULT_DATA);
-  const [currentTaller, setCurrentTaller] = useState(0);
-  const [currentActivity, setCurrentActivity] = useState(0);
+  const [data, setData] = useState(DD);
+  const [ct, setCt] = useState(0); // currentTaller
+  const [ca, setCa] = useState(0); // currentActivity
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showingIntro, setShowingIntro] = useState(true);
-  const saveTimeout = useRef(null);
+  const [showIntro, setShowIntro] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const saveRef = useRef(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const apiResult = await apiCall("load", { empresa: user });
-        if (apiResult.success && apiResult.datos && Object.keys(apiResult.datos).length > 0) {
-          const parsed = apiResult.datos;
-          setData(prev => ({ ...prev, ...parsed }));
-          if (parsed.currentTaller !== undefined) setCurrentTaller(parsed.currentTaller);
-          if (parsed.currentActivity !== undefined) setCurrentActivity(parsed.currentActivity);
-        } else {
-          const raw = localStorage.getItem(STORAGE_KEY + "_" + user);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            setData(prev => ({ ...prev, ...parsed }));
-            if (parsed.currentTaller !== undefined) setCurrentTaller(parsed.currentTaller);
-            if (parsed.currentActivity !== undefined) setCurrentActivity(parsed.currentActivity);
-          }
+        const res = await apiCall("load", { empresa: user });
+        if (res.success && res.datos && Object.keys(res.datos).length > 0) {
+          const p = res.datos;
+          setData(prev => ({ ...prev, ...p }));
+          if (p.currentTaller !== undefined) setCt(p.currentTaller);
+          if (p.currentActivity !== undefined) setCa(p.currentActivity);
         }
-      } catch (e) {
-        const raw = localStorage.getItem(STORAGE_KEY + "_" + user);
-        if (raw) { const parsed = JSON.parse(raw); setData(prev => ({ ...prev, ...parsed })); }
-      }
+      } catch(e) {}
       setLoaded(true);
     };
     load();
@@ -2108,107 +2281,75 @@ function InnovaccionApp({ user, onLogout }) {
 
   useEffect(() => {
     if (!loaded) return;
-    if (saveTimeout.current) clearTimeout(saveTimeout.current);
-    saveTimeout.current = setTimeout(async () => {
+    clearTimeout(saveRef.current);
+    saveRef.current = setTimeout(async () => {
       setSaving(true);
-      try {
-        const toSave = { ...data, currentTaller, currentActivity, lastSaved: new Date().toISOString() };
-        localStorage.setItem(STORAGE_KEY + "_" + user, JSON.stringify(toSave));
-        await apiCall("save", { empresa: user, datos: toSave });
-      } catch (e) { console.error("Save failed:", e); }
+      const toSave = { ...data, currentTaller: ct, currentActivity: ca, lastSaved: new Date().toISOString() };
+      localStorage.setItem(STORAGE_KEY + "_" + user, JSON.stringify(toSave));
+      await apiCall("save", { empresa: user, datos: toSave });
       setTimeout(() => setSaving(false), 800);
     }, 2000);
-  }, [data, currentTaller, currentActivity, loaded, user]);
+  }, [data, ct, ca, loaded, user]);
 
   const progress = calcProgress(data);
-  const taller = TALLERES[currentTaller];
-  const activity = taller?.actividades[currentActivity];
+  const missing = getMissingActivities(data);
+  const taller = TALLERES[ct];
+  const activity = taller && taller.actividades ? taller.actividades[ca] : null;
+  const isLastActivity = ct === TALLERES.length-1 && !showIntro && ca === taller.actividades.length-1;
 
-  const goToActivity = (ti, ai) => {
-    if (ti !== currentTaller) { setCurrentTaller(ti); setCurrentActivity(ai); setShowingIntro(true); }
-    else { setCurrentActivity(ai); setShowingIntro(false); }
-    setSidebarOpen(false);
+  const goTo = (ti, ai) => { setCt(ti); setCa(ai); setShowIntro(ti !== ct); setSidebarOpen(false); };
+  const next = () => {
+    if (showIntro) { setShowIntro(false); setCa(0); }
+    else if (ca < taller.actividades.length-1) setCa(ca+1);
+    else if (ct < TALLERES.length-1) { setCt(ct+1); setCa(0); setShowIntro(true); }
+  };
+  const prev = () => {
+    if (showIntro && ct > 0) { const p=ct-1; setCt(p); setCa(TALLERES[p].actividades.length-1); setShowIntro(false); }
+    else if (!showIntro && ca > 0) setCa(ca-1);
+    else if (!showIntro) setShowIntro(true);
   };
 
-  const startTaller = () => { setShowingIntro(false); setCurrentActivity(0); };
-
-  const nextActivity = () => {
-    if (showingIntro) { setShowingIntro(false); setCurrentActivity(0); }
-    else if (currentActivity < taller.actividades.length - 1) { setCurrentActivity(currentActivity + 1); }
-    else if (currentTaller < TALLERES.length - 1) { setCurrentTaller(currentTaller + 1); setCurrentActivity(0); setShowingIntro(true); }
+  const handleGeneratePDF = async () => {
+    setGenerating(true);
+    try { await downloadPDF(data); } finally { setGenerating(false); }
   };
 
-  const prevActivity = () => {
-    if (showingIntro && currentTaller > 0) { const prevT = currentTaller - 1; setCurrentTaller(prevT); setCurrentActivity(TALLERES[prevT].actividades.length - 1); setShowingIntro(false); }
-    else if (showingIntro) { return; }
-    else if (currentActivity > 0) { setCurrentActivity(currentActivity - 1); }
-    else { setShowingIntro(true); }
-  };
-
-  if (!loaded) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'Montserrat', sans-serif", background: COLORS.navy, color: "#fff" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🚀</div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Cargando INNOVACCIÓN...</div>
-        </div>
-      </div>
-    );
-  }
+  if (!loaded) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.navy, color: "#fff", fontFamily: "'Montserrat', sans-serif" }}>
+      <div style={{ textAlign: "center" }}><div style={{ fontSize: 48, marginBottom: 16 }}>🚀</div><div style={{ fontSize: 20, fontWeight: 700 }}>Cargando INNOVACCIÓN V3...</div></div>
+    </div>
+  );
 
   return (
     <div style={{ fontFamily: "'Montserrat', sans-serif", display: "flex", height: "100vh", overflow: "hidden", background: COLORS.cream }}>
       {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 90 }} />}
 
-      {/* Sidebar */}
-      <aside style={{
-        width: 280, background: COLORS.navy, color: "#fff",
-        display: "flex", flexDirection: "column", flexShrink: 0,
-        position: sidebarOpen ? "fixed" : "relative", zIndex: 100, height: "100vh",
-      }}>
-        <div style={{ padding: "20px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)", textAlign: "center" }}>
-          {/* Logo de la empresa si está cargado */}
-          {data.empresa.logo && (
-            <div style={{ marginBottom: 10 }}>
-              <img src={data.empresa.logo} alt="Logo" style={{ maxHeight: 50, maxWidth: 160, objectFit: "contain", borderRadius: 4 }} />
+      {/* SIDEBAR */}
+      <aside style={{ width: 280, background: COLORS.navy, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0, zIndex: 100, height: "100vh", ...(sidebarOpen ? { position: "fixed" } : {}) }}>
+        <div style={{ padding: "16px", borderBottom: "1px solid rgba(255,255,255,0.1)", textAlign: "center" }}>
+          {data.empresa.logo && <div style={{ marginBottom: 8 }}><img src={data.empresa.logo} alt="Logo" style={{ maxHeight: 44, maxWidth: 140, objectFit: "contain", borderRadius: 4 }} /></div>}
+          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.55)", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 2 }}>Cámara de Comercio Aburrá Sur</div>
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}><span style={{ color: COLORS.cyan }}>plynn</span></div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.cyan, marginTop: 2 }}>PLANTILLA INNOVACCIÓN V3</div>
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 3 }}>Progreso general</div>
+            <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, height: 7, overflow: "hidden" }}>
+              <div style={{ width: `${progress}%`, height: "100%", background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`, borderRadius: 20, transition: "width 0.5s" }} />
             </div>
-          )}
-          <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Cámara de Comercio Aburrá Sur</div>
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>
-            <span style={{ color: COLORS.cyan }}>plynn</span>
+            <div style={{ fontSize: 12, color: COLORS.cyan, marginTop: 3, fontWeight: 700 }}>{progress}%</div>
           </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.cyan, marginTop: 4 }}>PLANTILLA INNOVACCIÓN</div>
         </div>
 
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginBottom: 4 }}>Progreso general</div>
-          <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, height: 8, overflow: "hidden" }}>
-            <div style={{ width: `${progress}%`, height: "100%", background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`, borderRadius: 20, transition: "width 0.5s" }} />
-          </div>
-          <div style={{ fontSize: 12, color: COLORS.cyan, marginTop: 4, fontWeight: 600 }}>{progress}%</div>
-        </div>
-
-        <nav style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+        <nav style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
           {TALLERES.map((t, ti) => (
             <div key={ti}>
-              <div onClick={() => goToActivity(ti, 0)} style={{
-                padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
-                background: currentTaller === ti ? "rgba(15,186,227,0.15)" : "transparent",
-                borderLeft: currentTaller === ti ? `3px solid ${COLORS.cyan}` : "3px solid transparent",
-                fontSize: 13, fontWeight: currentTaller === ti ? 700 : 500,
-              }}>
-                <span style={{ fontSize: 18 }}>{t.icon}</span>
-                <span>{t.titulo}</span>
+              <div onClick={() => goTo(ti, 0)} style={{ padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 9, background: ct===ti?"rgba(0,160,176,0.15)":"transparent", borderLeft: ct===ti?`3px solid ${COLORS.cyan}`:"3px solid transparent", fontSize: 12, fontWeight: ct===ti?700:500 }}>
+                <span style={{ fontSize: 16 }}>{t.icon}</span><span>{t.titulo}</span>
               </div>
-              {currentTaller === ti && (
-                <div style={{ paddingLeft: 44 }}>
-                  {t.actividades.map((a, ai) => (
-                    <div key={ai} onClick={() => goToActivity(ti, ai)} style={{
-                      padding: "6px 12px", cursor: "pointer",
-                      fontSize: 12, color: currentActivity === ai ? COLORS.cyan : "rgba(255,255,255,0.6)",
-                      fontWeight: currentActivity === ai ? 600 : 400,
-                      borderLeft: currentActivity === ai ? `2px solid ${COLORS.cyan}` : "2px solid transparent",
-                    }}>{a.titulo}</div>
+              {ct===ti && (
+                <div style={{ paddingLeft: 40 }}>
+                  {t.actividades.map((a,ai) => (
+                    <div key={ai} onClick={() => { setCt(ti); setCa(ai); setShowIntro(false); setSidebarOpen(false); }} style={{ padding: "5px 10px", cursor: "pointer", fontSize: 11, color: ca===ai?COLORS.cyan:"rgba(255,255,255,0.55)", fontWeight: ca===ai?700:400, borderLeft: ca===ai?`2px solid ${COLORS.cyan}`:"2px solid transparent" }}>{a.titulo}</div>
                   ))}
                 </div>
               )}
@@ -2216,103 +2357,99 @@ function InnovaccionApp({ user, onLogout }) {
           ))}
         </nav>
 
-        {/* CORRECCIÓN #17: Botones de descarga */}
-        <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-          <button onClick={() => downloadFullReport(data)}
-            style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: COLORS.cyan, color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'Montserrat', sans-serif", marginBottom: 6 }}>
-            📄 Descargar Plantilla Completa
+        <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+          <button onClick={handleGeneratePDF} disabled={generating}
+            style={{ width: "100%", padding: "10px 14px", borderRadius: 8, background: COLORS.cyan, color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "'Montserrat', sans-serif", marginBottom: 6, opacity: generating ? 0.7 : 1 }}>
+            {generating ? "⏳ Generando PDF..." : "📄 Descargar Informe PDF"}
           </button>
-          <button onClick={() => downloadCSV(data)}
-            style={{ width: "100%", padding: "8px 16px", borderRadius: 8, background: "rgba(15,186,227,0.2)", color: COLORS.cyan, border: `1px solid ${COLORS.cyan}`, cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "'Montserrat', sans-serif" }}>
-            📥 Exportar a CSV
-          </button>
-        </div>
-        <div style={{ padding: "8px 16px 16px" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 6, textAlign: "center" }}>Sesión: {user}</div>
-          <button onClick={onLogout}
-            style={{ width: "100%", padding: "8px 16px", borderRadius: 8, background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "'Montserrat', sans-serif" }}>
-            Cerrar sesión
-          </button>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", textAlign: "center", marginBottom: 6 }}>Sesión: {user}</div>
+          <button onClick={onLogout} style={{ width: "100%", padding: "7px 14px", borderRadius: 8, background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.65)", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer", fontWeight: 600, fontSize: 12, fontFamily: "'Montserrat', sans-serif" }}>Cerrar sesión</button>
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* MAIN */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <header style={{ background: "#fff", padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${COLORS.lightGray}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <header style={{ background: "#fff", padding: "11px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${COLORS.lightGray}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: COLORS.navy, padding: 4 }}>☰</button>
             <div>
               <div style={{ fontSize: 11, color: COLORS.gray, fontWeight: 500 }}>{taller.icon} {taller.titulo}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.navy }}>{showingIntro ? "Introducción al taller" : activity?.titulo}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.navy }}>{showIntro ? "Introducción" : (activity ? activity.titulo : "")}</div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {saving && <span style={{ fontSize: 12, color: COLORS.green, fontWeight: 500 }}>✓ Guardado</span>}
-            {data.empresa.nombre && (
-              <span style={{ fontSize: 12, color: COLORS.navy, fontWeight: 600, background: COLORS.lightCyan, padding: "4px 10px", borderRadius: 20 }}>
-                {data.empresa.nombre}
-              </span>
-            )}
+            {data.empresa.nombre && <span style={{ fontSize: 12, color: COLORS.navy, fontWeight: 600, background: COLORS.lightCyan, padding: "4px 10px", borderRadius: 20 }}>{data.empresa.nombre}</span>}
           </div>
         </header>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px 100px" }}>
-          {showingIntro ? (
-            <div style={{ maxWidth: 650, margin: "0 auto", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
-              <div style={{ width: "100%", height: 6, borderRadius: 3, background: `linear-gradient(90deg, ${taller.color}, ${COLORS.cyan})`, marginBottom: 40 }} />
-              <div style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg, ${taller.color}, ${taller.color}DD)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, marginBottom: 20, boxShadow: `0 8px 30px ${taller.color}40` }}>
-                {taller.icon}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: taller.color, textTransform: "uppercase", letterSpacing: 3, marginBottom: 8 }}>Taller {currentTaller + 1} de {TALLERES.length}</div>
-              <h1 style={{ fontSize: 32, fontWeight: 800, color: COLORS.navy, margin: "0 0 16px", lineHeight: 1.2, fontFamily: "'Montserrat', sans-serif" }}>{taller.titulo}</h1>
-              <p style={{ fontSize: 16, color: COLORS.gray, lineHeight: 1.7, maxWidth: 500, margin: "0 0 32px" }}>{taller.intro}</p>
-              <div style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", width: "100%", maxWidth: 450, textAlign: "left", border: `1px solid ${COLORS.lightGray}`, marginBottom: 32 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>Actividades en este taller</div>
-                {taller.actividades.map((act, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < taller.actividades.length - 1 ? `1px solid ${COLORS.lightGray}` : "none" }}>
-                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: taller.color + "20", color: taller.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{i + 1}</div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.navy }}>{act.titulo}</div>
-                      <div style={{ fontSize: 12, color: COLORS.gray }}>{act.desc}</div>
-                    </div>
+          {showIntro ? (
+            <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+              <div style={{ width: "100%", height: 5, borderRadius: 3, background: `linear-gradient(90deg, ${taller.color}, ${COLORS.cyan})`, marginBottom: 36 }} />
+              <div style={{ width: 76, height: 76, borderRadius: "50%", background: taller.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, marginBottom: 18, boxShadow: `0 8px 30px ${taller.color}40` }}>{taller.icon}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: taller.color, textTransform: "uppercase", letterSpacing: 3, marginBottom: 6 }}>Taller {ct+1} de {TALLERES.length}</div>
+              <h1 style={{ fontSize: 28, fontWeight: 800, color: COLORS.navy, margin: "0 0 14px", fontFamily: "'Montserrat', sans-serif" }}>{taller.titulo}</h1>
+              <p style={{ fontSize: 15, color: COLORS.gray, lineHeight: 1.7, maxWidth: 480, margin: "0 0 28px" }}>{taller.intro}</p>
+              <div style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", width: "100%", maxWidth: 420, textAlign: "left", border: `1px solid ${COLORS.lightGray}`, marginBottom: 28 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.navy, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Actividades</div>
+                {taller.actividades.map((a,i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderBottom: i<taller.actividades.length-1?`1px solid ${COLORS.lightGray}`:"none" }}>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: taller.color+"20", color: taller.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{i+1}</div>
+                    <div><div style={{ fontSize: 13, fontWeight: 600, color: COLORS.navy }}>{a.titulo}</div><div style={{ fontSize: 11, color: COLORS.gray }}>{a.desc}</div></div>
                   </div>
                 ))}
               </div>
-              <button onClick={startTaller} style={{ background: `linear-gradient(135deg, ${taller.color}, ${taller.color}CC)`, color: "#fff", border: "none", padding: "16px 48px", borderRadius: 12, cursor: "pointer", fontSize: 18, fontWeight: 800, fontFamily: "'Montserrat', sans-serif", boxShadow: `0 6px 25px ${taller.color}40`, display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => { setShowIntro(false); setCa(0); }} style={{ background: taller.color, color: "#fff", border: "none", padding: "14px 44px", borderRadius: 10, cursor: "pointer", fontSize: 17, fontWeight: 800, fontFamily: "'Montserrat', sans-serif", boxShadow: `0 6px 25px ${taller.color}40` }}>
                 Iniciar Taller →
               </button>
-              <div style={{ width: "100%", height: 6, borderRadius: 3, background: `linear-gradient(90deg, ${COLORS.cyan}, ${taller.color})`, marginTop: 40 }} />
+              <div style={{ width: "100%", height: 5, borderRadius: 3, background: `linear-gradient(90deg, ${COLORS.cyan}, ${taller.color})`, marginTop: 36 }} />
             </div>
           ) : (
             <div style={{ maxWidth: 900, margin: "0 auto" }}>
-              {activity && (
-                <div style={{ marginBottom: 20, padding: "12px 16px", background: "#fff", borderRadius: 10, borderLeft: `4px solid ${taller.color}`, fontSize: 14, color: COLORS.gray, lineHeight: 1.5 }}>
-                  {activity.desc}
+              {activity && <div style={{ marginBottom: 18, padding: "10px 14px", background: "#fff", borderRadius: 10, borderLeft: `4px solid ${taller.color}`, fontSize: 14, color: COLORS.gray }}>{activity.desc}</div>}
+              {activity && <Activity id={activity.id} data={data} setData={setData} />}
+
+              {/* Botón final + resumen de pendientes */}
+              {isLastActivity && (
+                <div style={{ marginTop: 32, padding: 24, background: "#fff", borderRadius: 16, border: `2px solid ${COLORS.cyan}`, boxShadow: "0 4px 20px rgba(0,160,176,0.1)" }}>
+                  <div style={{ textAlign: "center", marginBottom: 20 }}>
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>{progress === 100 ? "🎉" : "📋"}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: COLORS.navy, marginBottom: 4 }}>
+                      {progress === 100 ? "¡Plantilla completada al 100%!" : `Progreso actual: ${progress}%`}
+                    </div>
+                    {missing.length > 0 && (
+                      <div style={{ textAlign: "left", marginTop: 16, background: "#FFF9EC", border: "1px solid #F0D98C", borderRadius: 10, padding: "14px 16px" }}>
+                        <div style={{ fontWeight: 700, color: COLORS.navy, marginBottom: 8 }}>⚠️ Actividades pendientes por completar:</div>
+                        {missing.map((m,i) => <div key={i} style={{ fontSize: 13, color: "#7F4F00", padding: "3px 0" }}>• {m}</div>)}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={handleGeneratePDF} disabled={generating}
+                    style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: generating?"#ccc":`linear-gradient(135deg, ${COLORS.navy}, ${COLORS.cyan})`, color: "#fff", fontSize: 18, fontWeight: 800, cursor: generating?"wait":"pointer", fontFamily: "'Montserrat', sans-serif", boxShadow: "0 6px 25px rgba(0,160,176,0.3)" }}>
+                    {generating ? "⏳ Generando informe PDF..." : "📄 Terminar y Generar Informe en PDF"}
+                  </button>
                 </div>
               )}
-              {activity && <RenderActivity activityId={activity.id} data={data} setData={setData} />}
             </div>
           )}
         </div>
 
-        <div style={{ background: "#fff", padding: "12px 24px", borderTop: `1px solid ${COLORS.lightGray}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <button onClick={prevActivity} disabled={currentTaller === 0 && showingIntro}
-            style={{ ...btnStyle(COLORS.navy), opacity: (currentTaller === 0 && showingIntro) ? 0.3 : 1, padding: "10px 20px" }}>
-            ← Anterior
-          </button>
+        <div style={{ background: "#fff", padding: "11px 22px", borderTop: `1px solid ${COLORS.lightGray}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={prev} disabled={ct===0&&showIntro} style={{ ...btnStyle(COLORS.navy), opacity: ct===0&&showIntro?0.3:1, padding: "10px 20px" }}>← Anterior</button>
           <span style={{ fontSize: 12, color: COLORS.gray }}>
-            {showingIntro ? `Taller ${currentTaller + 1} de ${TALLERES.length}` : `Taller ${currentTaller + 1} · Actividad ${currentActivity + 1} de ${taller.actividades.length}`}
+            {showIntro ? `Taller ${ct+1} de ${TALLERES.length}` : `Taller ${ct+1} · Actividad ${ca+1} de ${taller.actividades.length}`}
           </span>
-          <button onClick={nextActivity}
-            disabled={currentTaller === TALLERES.length - 1 && !showingIntro && currentActivity === taller.actividades.length - 1}
-            style={{ ...btnStyle(COLORS.cyan), opacity: (currentTaller === TALLERES.length - 1 && !showingIntro && currentActivity === taller.actividades.length - 1) ? 0.3 : 1, padding: "10px 20px" }}>
-            {showingIntro ? "Iniciar →" : "Siguiente →"}
-          </button>
+          {isLastActivity
+            ? <button onClick={handleGeneratePDF} disabled={generating} style={{ ...btnStyle(COLORS.cyan), padding: "10px 20px", opacity: generating?0.7:1 }}>{generating?"⏳ Generando...":"📄 Generar PDF"}</button>
+            : <button onClick={next} style={{ ...btnStyle(COLORS.cyan), padding: "10px 20px" }}>{showIntro?"Iniciar →":"Siguiente →"}</button>
+          }
         </div>
       </main>
     </div>
   );
 }
+
 
 // ============================================================
 // LOGIN SCREEN
@@ -2395,34 +2532,20 @@ function LoginScreen({ onLogin }) {
  
   return (
     <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
       background: "linear-gradient(135deg, #1A2E4A 0%, #0D1B3E 50%, #223D5E 100%)",
-      fontFamily: "'Montserrat', sans-serif",
-      padding: "40px 20px",
-      overflowY: "auto",
-      boxSizing: "border-box",
-}}>
-      {/* Decorative blurs — hidden on very small screens for performance */}
+      fontFamily: "'Montserrat', sans-serif", padding: "40px 20px",
+      overflowY: "auto", boxSizing: "border-box",
+    }}>
       <div style={{ position: "fixed", top: "10%", left: "5%", width: 300, height: 300, borderRadius: "50%", background: "rgba(0,160,176,0.03)", filter: "blur(80px)", pointerEvents: "none" }} />
       <div style={{ position: "fixed", bottom: "10%", right: "10%", width: 400, height: 400, borderRadius: "50%", background: "rgba(245,166,35,0.02)", filter: "blur(100px)", pointerEvents: "none" }} />
  
       <div style={{
-        background: "rgba(255,255,255,0.97)",
-        borderRadius: 20,
-        padding: "32px 28px",
-        maxWidth: 420,
-        width: "100%",
-        position: "relative",
+        background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "32px 28px",
+        maxWidth: 420, width: "100%", position: "relative",
         boxShadow: "0 25px 80px rgba(0,0,0,0.4)",
-        marginTop: "auto",
-        marginBottom: "auto",
-        flexShrink: 0,
+        marginTop: "auto", marginBottom: "auto", flexShrink: 0,
       }}>
- 
-        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ fontSize: 36, marginBottom: 6 }}>🚀</div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", marginBottom: 2 }}>Cámara de Comercio Aburrá Sur</div>
@@ -2430,7 +2553,6 @@ function LoginScreen({ onLogin }) {
           <div style={{ fontSize: 13, fontWeight: 600, color: "#00A0B0", marginTop: 2 }}>PLANTILLA INNOVACCIÓN</div>
         </div>
  
-        {/* ── MODO: LOGIN / REGISTER ── */}
         {(mode === "login" || mode === "register") && (
           <div>
             <div style={{ display: "flex", marginBottom: 20, borderRadius: 10, overflow: "hidden", border: "2px solid #E5E7EB" }}>
@@ -2441,36 +2563,27 @@ function LoginScreen({ onLogin }) {
                 </button>
               ))}
             </div>
- 
             <div>
               <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Nombre de la empresa</label>
               <input value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
                 placeholder="Ej: Mi Empresa S.A.S." style={loginInputStyle} />
- 
               {mode === "register" && (
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>
                     Correo electrónico <span style={{ color: "#E53935" }}>*</span>
                   </label>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6 }}>
-                    Necesario para recuperar tu contraseña en el futuro
-                  </div>
-                  <input value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@empresa.com" type="email"
-                    style={loginInputStyle} />
+                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6 }}>Necesario para recuperar tu contraseña en el futuro</div>
+                  <input value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@empresa.com" type="email" style={loginInputStyle} />
                 </div>
               )}
- 
               <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Contraseña</label>
               <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
                 placeholder="••••••••" type="password" style={loginInputStyle} />
- 
               {error && <div style={{ background: "#FEF2F2", color: "#E53935", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginTop: 8 }}>{error}</div>}
- 
               <button onClick={handleSubmit} disabled={loading}
                 style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? "#6B7280" : "linear-gradient(135deg, #00A0B0, #223D5E)", color: "#fff", fontSize: 16, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 16 }}>
                 {loading ? "Conectando..." : mode === "login" ? "Entrar →" : "Registrar empresa →"}
               </button>
- 
               {mode === "login" && (
                 <div style={{ textAlign: "center", marginTop: 16 }}>
                   <button onClick={() => switchMode("forgot")}
@@ -2480,40 +2593,31 @@ function LoginScreen({ onLogin }) {
                 </div>
               )}
             </div>
- 
             <div style={{ textAlign: "center", marginTop: 16, fontSize: 11, color: "#6B7280" }}>
               {mode === "login" ? "Tu progreso se guarda automáticamente en la nube." : "Registra tu empresa para guardar el progreso del Programa INNOVACCIÓN."}
             </div>
           </div>
         )}
  
-        {/* ── MODO: OLVIDÉ MI CONTRASEÑA (Paso 1) ── */}
         {mode === "forgot" && (
           <div>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(0,160,176,0.1)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 24, marginBottom: 10 }}>🔑</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: "#1A2E4A" }}>Recuperar contraseña</div>
-              <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6, lineHeight: 1.5 }}>
-                Ingresa el nombre de tu empresa y el correo con el que te registraste. Te enviaremos un código de verificación.
-              </div>
+              <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6, lineHeight: 1.5 }}>Ingresa el nombre de tu empresa y el correo con el que te registraste. Te enviaremos un código.</div>
             </div>
- 
             <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Nombre de la empresa</label>
             <input value={empresa} onChange={e => setEmpresa(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
               placeholder="Ej: Mi Empresa S.A.S." style={loginInputStyle} />
- 
             <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Correo electrónico registrado</label>
             <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
               placeholder="correo@empresa.com" type="email" style={loginInputStyle} />
- 
             {error && <div style={{ background: "#FEF2F2", color: "#E53935", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 8 }}>{error}</div>}
             {success && <div style={{ background: "#ECFDF5", color: "#059669", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 8 }}>{success}</div>}
- 
             <button onClick={handleSubmit} disabled={loading}
               style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? "#6B7280" : "linear-gradient(135deg, #00A0B0, #223D5E)", color: "#fff", fontSize: 15, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 8 }}>
               {loading ? "Enviando código..." : "Enviar código →"}
             </button>
- 
             <div style={{ textAlign: "center", marginTop: 16 }}>
               <button onClick={() => switchMode("login")}
                 style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 13, color: "#6B7280", fontWeight: 500, padding: 0 }}>
@@ -2523,41 +2627,31 @@ function LoginScreen({ onLogin }) {
           </div>
         )}
  
-        {/* ── MODO: NUEVA CONTRASEÑA (Paso 2) ── */}
         {mode === "newpass" && (
           <div>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(52,199,89,0.1)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 24, marginBottom: 10 }}>📧</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: "#1A2E4A" }}>Ingresa el código</div>
-              <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6, lineHeight: 1.5 }}>
-                Revisa tu correo (también spam). Ingresa el código de 6 dígitos y crea tu nueva contraseña.
-              </div>
+              <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6, lineHeight: 1.5 }}>Revisa tu correo (también spam). Ingresa el código de 6 dígitos y crea tu nueva contraseña.</div>
             </div>
- 
             {success && <div style={{ background: "#ECFDF5", color: "#059669", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 14, textAlign: "center", fontWeight: 600 }}>{success}</div>}
- 
             <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Código de verificación</label>
-            <input value={code} onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); }}
+            <input value={code} onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 6); setCode(v); }}
               placeholder="000000" maxLength={6}
               style={{ ...loginInputStyle, textAlign: "center", fontSize: 26, fontWeight: 800, letterSpacing: 8, padding: "14px" }}
               onKeyDown={e => e.key === "Enter" && handleSubmit()} />
- 
             <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Nueva contraseña</label>
             <input value={newPassword} onChange={e => setNewPassword(e.target.value)}
               placeholder="Mínimo 4 caracteres" type="password" style={loginInputStyle} />
- 
             <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1A2E4A", marginBottom: 6 }}>Confirmar nueva contraseña</label>
             <input value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
               placeholder="Repite la contraseña" type="password" style={loginInputStyle}
               onKeyDown={e => e.key === "Enter" && handleSubmit()} />
- 
             {error && <div style={{ background: "#FEF2F2", color: "#E53935", padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 8 }}>{error}</div>}
- 
             <button onClick={handleSubmit} disabled={loading}
               style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: loading ? "#6B7280" : "linear-gradient(135deg, #34C759, #1A2E4A)", color: "#fff", fontSize: 15, fontWeight: 800, cursor: loading ? "wait" : "pointer", fontFamily: "'Montserrat', sans-serif", marginTop: 8 }}>
               {loading ? "Verificando..." : "Cambiar contraseña →"}
             </button>
- 
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14 }}>
               <button onClick={() => switchMode("forgot")}
                 style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Montserrat', sans-serif", fontSize: 12, color: "#00A0B0", fontWeight: 500, padding: 0 }}>
@@ -2570,15 +2664,12 @@ function LoginScreen({ onLogin }) {
             </div>
           </div>
         )}
- 
       </div>
     </div>
   );
 }
- 
-// ============================================================
-// APP WRAPPER
-// ============================================================
+
+
 function AppWrapper() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
