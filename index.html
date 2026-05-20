@@ -39,24 +39,81 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvHvdG6J6ekLxr
 async function apiCall(action, params = {}) {
   const USE_LOCAL = !APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("TU_URL");
   const BACKEND_ACTIONS = ["login", "register", "save", "load", "resetPassword", "verifyCode", "updatePassword"];
+
+  // Actions that send large data MUST use POST to avoid URL length limits
+  const POST_ACTIONS = ["save", "register", "resetPassword", "verifyCode", "updatePassword"];
  
   if (!USE_LOCAL && BACKEND_ACTIONS.includes(action)) {
     try {
-      let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
-      for (const [key, val] of Object.entries(params)) {
-        if (key === "datos") url += "&payload=" + encodeURIComponent(JSON.stringify(val));
-        else url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+      let result;
+
+      if (POST_ACTIONS.includes(action)) {
+        // === POST: send data in request body (no URL size limit) ===
+        const postBody = { action, ...params };
+        if (params.datos) postBody.payload = params.datos;
+
+        // Apps Script requires a specific POST approach via doPost
+        // We send as form data which Apps Script can read via e.postData or e.parameter
+        const formData = new URLSearchParams();
+        formData.append("action", action);
+        for (const [key, val] of Object.entries(params)) {
+          if (key === "datos") formData.append("payload", JSON.stringify(val));
+          else formData.append(key, val);
+        }
+
+        const res = await fetch(APPS_SCRIPT_URL, {
+          method: "POST",
+          body: formData,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
+        result = await res.json();
+
+      } else {
+        // === GET: for read-only actions (login, load) with small params ===
+        let url = APPS_SCRIPT_URL + "?action=" + encodeURIComponent(action);
+        for (const [key, val] of Object.entries(params)) {
+          url += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+        }
+        const res = await fetch(url);
+        result = await res.json();
       }
-      const res = await fetch(url);
-      const result = await res.json();
+
+      // On successful save, also backup locally
       if (action === "save" && result.success) {
         try {
           const toSave = params.datos || {};
           localStorage.setItem(STORAGE_KEY + "_" + params.empresa, JSON.stringify(toSave));
         } catch (e) {}
       }
+
+      // On successful load, also backup locally
+      if (action === "load" && result.success && result.datos) {
+        try {
+          localStorage.setItem(STORAGE_KEY + "_" + params.empresa, JSON.stringify(result.datos));
+        } catch (e) {}
+      }
+
       return result;
+
     } catch (e) {
+      console.error("API error (" + action + "):", e);
+
+      // For load: try local backup if server fails
+      if (action === "load") {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY + "_" + params.empresa);
+          if (raw) return { success: true, datos: JSON.parse(raw), fromLocal: true };
+        } catch (le) {}
+      }
+
+      // For save: save locally as backup, report error
+      if (action === "save") {
+        try {
+          localStorage.setItem(STORAGE_KEY + "_" + params.empresa, JSON.stringify(params.datos));
+        } catch (le) {}
+        return { success: false, error: "Error de conexión. Los datos se guardaron localmente como respaldo." };
+      }
+
       if (action === "resetPassword" || action === "verifyCode") {
         return { success: false, error: "No se pudo conectar al servidor. Verifica tu conexión a internet e intenta nuevamente." };
       }
@@ -64,6 +121,7 @@ async function apiCall(action, params = {}) {
     }
   }
  
+  // === LOCAL FALLBACK (when no backend URL configured) ===
   if (action === "login") {
     const stored = localStorage.getItem("user_" + params.empresa);
     if (!stored) return { success: false, error: "Empresa no registrada. Regístrate primero." };
@@ -82,7 +140,10 @@ async function apiCall(action, params = {}) {
     if (raw) return { success: true, datos: JSON.parse(raw) };
     return { success: true, datos: {} };
   }
-  if (action === "save") { return { success: true }; }
+  if (action === "save") {
+    try { localStorage.setItem(STORAGE_KEY + "_" + params.empresa, JSON.stringify(params.datos)); } catch(e) {}
+    return { success: true };
+  }
   if (action === "resetPassword") {
     return { success: false, error: "La recuperación de contraseña requiere conexión al servidor. Verifica tu conexión a internet o contacta al administrador del programa." };
   }
@@ -1784,6 +1845,10 @@ function InnovaccionApp() {
           if (!merged.capacidades) merged.capacidades = DEFAULT_DATA.capacidades;
           return merged;
         });
+        if (result.fromLocal) {
+          setSaveStatus("⚠️ Datos cargados desde respaldo local");
+          setTimeout(() => setSaveStatus(""), 5000);
+        }
       }
     } catch (e) { console.error("Error loading:", e); }
     setLoading(false);
@@ -1796,16 +1861,17 @@ function InnovaccionApp() {
     try {
       const result = await apiCall("save", { empresa, datos: dataToSave });
       if (result.success) {
-        setSaveStatus("✅ Guardado");
-        try { localStorage.setItem(STORAGE_KEY + "_" + empresa, JSON.stringify(dataToSave)); } catch (e) {}
+        setSaveStatus(result.fromLocal ? "💾 Guardado local (sin conexión)" : "✅ Guardado en servidor");
       } else {
-        setSaveStatus("⚠️ Error al guardar");
+        setSaveStatus("⚠️ " + (result.error || "Error al guardar"));
       }
     } catch (e) {
-      setSaveStatus("⚠️ Error de conexión");
+      // Emergency local save
+      try { localStorage.setItem(STORAGE_KEY + "_" + empresa, JSON.stringify(dataToSave)); } catch (le) {}
+      setSaveStatus("⚠️ Guardado solo local");
     }
     setSaving(false);
-    setTimeout(() => setSaveStatus(""), 3000);
+    setTimeout(() => setSaveStatus(""), 4000);
   }, [empresa]);
 
   const dataRef = useRef(data);
